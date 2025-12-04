@@ -64,6 +64,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Update min score display
+    const minScoreSlider = document.getElementById('minScore');
+    const minScoreValue = document.getElementById('minScoreValue');
+    if (minScoreSlider && minScoreValue) {
+        minScoreSlider.addEventListener('input', (e) => {
+            minScoreValue.textContent = e.target.value + '%';
+        });
+    }
+
     // Allow Enter key to trigger search
     searchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -77,6 +86,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = searchInput.value.trim();
         if (!query) return;
 
+        // Get filter values
+        const minScore = (document.getElementById('minScore')?.value || 0) / 100;
+        const authorFilter = document.getElementById('authorFilter')?.value || '';
+
         // Reset UI
         loadingDiv.classList.remove('hidden');
         answerDiv.classList.add('hidden');
@@ -84,7 +97,14 @@ document.addEventListener('DOMContentLoaded', () => {
         answerDiv.textContent = '';
 
         try {
-            const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+            const url = new URL('/search', window.location.origin);
+            url.searchParams.append('q', query);
+            url.searchParams.append('min_score', minScore);
+            if (authorFilter) {
+                url.searchParams.append('author_filter', authorFilter);
+            }
+
+            const response = await fetch(url);
 
             if (!response.ok) {
                 throw new Error(`Search failed: ${response.statusText}`);
@@ -121,14 +141,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const score = (match.score * 100).toFixed(1);
                 const metadata = match.metadata || {};
                 const summary = metadata.summary || 'No summary available';
-                const url = metadata.url || '#'; // Fallback if source not present
-                const sourceUrl = metadata.source || url;
+                const title = metadata.title || 'Untitled';
+                const author = metadata.author || 'Unknown';
+                const sourceUrl = metadata.source || '#';
 
                 card.innerHTML = `
                     <div class="match-header">
                         <span class="score">Match: ${score}%</span>
                         <a href="${sourceUrl}" target="_blank" class="video-link">Watch Video ↗</a>
                     </div>
+                    <h4 class="video-title">${title}</h4>
+                    <p class="video-author">By: ${author}</p>
                     <p class="match-summary">${summary}</p>
                 `;
                 matchesDiv.appendChild(card);

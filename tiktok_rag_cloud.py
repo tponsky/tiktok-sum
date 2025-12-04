@@ -73,8 +73,8 @@ def get_urls_from_clipboard() -> List[str]:
     return URL_REGEX.findall(text)
 
 
-def download_audio(url: str, out_dir: str) -> str:
-    """Download audio using yt-dlp and return WAV path"""
+def download_audio(url: str, out_dir: str) -> tuple[str, dict]:
+    """Download audio using yt-dlp and return WAV path + video metadata"""
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": os.path.join(out_dir, "%(id)s.%(ext)s"),
@@ -96,7 +96,16 @@ def download_audio(url: str, out_dir: str) -> str:
     cmd = ["ffmpeg", "-y", "-i", fname, "-ac", "1", "-ar", "16000", wav_path]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    return wav_path
+    # Extract metadata
+    metadata = {
+        "title": info.get("title", ""),
+        "author": info.get("uploader", info.get("creator", "")),
+        "upload_date": info.get("upload_date", ""),
+        "duration": info.get("duration", 0),
+        "view_count": info.get("view_count", 0),
+    }
+
+    return wav_path, metadata
 
 
 def transcribe_with_openai(audio_path: str) -> str:
@@ -109,7 +118,8 @@ def transcribe_with_openai(audio_path: str) -> str:
     return resp.text
 
 
-def chunk_text(text: str, max_chars: int = 2500) -> List[str]:
+def chunk_text(text: str, max_chars: int = 1500, overlap: int = 200) -> List[str]:
+    """Chunk text with overlap to preserve context."""
     sents = sent_tokenize(text)
     chunks, cur = [], ""
 
@@ -117,7 +127,12 @@ def chunk_text(text: str, max_chars: int = 2500) -> List[str]:
         if len(cur) + len(s) + 1 > max_chars:
             if cur:
                 chunks.append(cur.strip())
-            cur = s
+                # Start next chunk with overlap from end of current chunk
+                words = cur.split()
+                overlap_text = " ".join(words[-overlap//5:]) if len(words) > overlap//5 else ""
+                cur = overlap_text + " " + s if overlap_text else s
+            else:
+                cur = s
         else:
             cur += " " + s
 
@@ -161,9 +176,9 @@ def process_urls(urls: List[str]):
         for url in urls:
             print("Processing:", url)
 
-            # 1. Download audio
+            # 1. Download audio and get metadata
             try:
-                wav = download_audio(url, tmpdir)
+                wav, video_metadata = download_audio(url, tmpdir)
             except Exception as e:
                 print("Download error:", e)
                 continue
@@ -188,7 +203,7 @@ def process_urls(urls: List[str]):
                     s = ch[:400]
                 summaries.append({"chunk": ch, "summary": s})
 
-            # 5. Prepare docs
+            # 5. Prepare docs with enhanced metadata
             docs, metas = [], []
             timestamp = int(time.time())
 
@@ -198,7 +213,12 @@ def process_urls(urls: List[str]):
                 metas.append({
                     "source": url,
                     "summary": item["summary"],
-                    "chunk_index": i
+                    "chunk_index": i,
+                    "title": video_metadata.get("title", ""),
+                    "author": video_metadata.get("author", ""),
+                    "upload_date": video_metadata.get("upload_date", ""),
+                    "duration": video_metadata.get("duration", 0),
+                    "view_count": video_metadata.get("view_count", 0),
                 })
 
             # 6. Embeddings
