@@ -200,3 +200,62 @@ button:hover {
 .status-msg.error {
     color: red;
 }
+
+/* Filters */
+.filters {
+    margin-bottom: 20px;
+}
+
+.filters details {
+    background-color: var(--card-bg);
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.filters summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--primary-color);
+    user-select: none;
+}
+
+.filters summary:hover {
+    opacity: 0.8;
+}
+
+.filter-controls {
+    margin-top: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.filter-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 14px;
+}
+
+.filter-controls input[type="range"] {
+    width: 100%;
+}
+
+.filter-controls input[type="text"] {
+    width: 100%;
+}
+
+/* Video metadata */
+.video-title {
+    margin: 10px 0 5px 0;
+    color: var(--text-color);
+    font-size: 1.1em;
+}
+
+.video-author {
+    margin: 0 0 10px 0;
+    color: #666;
+    font-size: 0.9em;
+    font-style: italic;
+}
