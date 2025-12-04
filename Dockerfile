@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose port (Railway will set PORT env var)
+# Expose port
 EXPOSE 8080
 
 # Start command
-CMD ["sh", "-c", "uvicorn rag_api:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["uvicorn", "rag_api:app", "--host", "0.0.0.0", "--port", "8080"]
