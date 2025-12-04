@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TikTok RAG Search</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f7f7f7;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 700px;
+            margin: auto;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            width: 100%;
+            border: none;
+            background: black;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        .results {
+            margin-top: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>TikTok RAG Search</h2>
+    <input id="query" placeholder="Ask anything about your TikTok library…" />
+
+    <button onclick="runSearch()">Search</button>
+
+    <div id="output"></div>
+</div>
+
+<script>
+async function runSearch() {
+    const q = document.getElementById("query").value;
+    const output = document.getElementById("output");
+
+    if (!q.trim()) return;
+
+    output.innerHTML = "<p>Searching…</p>";
+
+    const API = window.env?.NEXT_PUBLIC_RAG_API_URL ||
+                (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_RAG_API_URL : null);
+
+    const endpoint = API || "http://127.0.0.1:8000";
+
+    const res = await fetch(`${endpoint}/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q })
+    });
+
+    const data = await res.json();
+
+    output.innerHTML = `
+        <div class="results">
+            <h3>Answer</h3>
+            <p>${data.answer}</p>
+            <hr />
+            <h3>Matching Chunks</h3>
+            <pre>${JSON.stringify(data.matches, null, 2)}</pre>
+        </div>
+    `;
+}
+</script>
+</body>
+</html>

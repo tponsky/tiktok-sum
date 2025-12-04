@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok RAG Search</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <h1>TikTok Video Search</h1>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="search">Search</button>
+            <button class="tab-btn" data-tab="ingest">Add Source</button>
+        </div>
+
+        <div id="search-tab" class="tab-content active">
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Ask a question about your videos...">
+                <button id="searchBtn">Search</button>
+            </div>
+            <div id="loading" class="hidden">Thinking...</div>
+            <div id="results">
+                <div id="answer" class="answer-box hidden"></div>
+                <div id="matches" class="matches-list"></div>
+            </div>
+        </div>
+
+        <div id="ingest-tab" class="tab-content hidden">
+            <div class="ingest-box">
+                <h3>Add New Video</h3>
+                <input type="text" id="ingestInput" placeholder="Paste TikTok URL here...">
+                <button id="ingestBtn">Add Video</button>
+                <div id="ingestStatus" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
