@@ -633,15 +633,90 @@ def delete_category(name: str):
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
 
     print(f"=== DELETE CATEGORY REQUEST ===")
-    print(f"Category to delete: '{name}' (type: {type(name)}, repr: {repr(name)})")
-    print(f"Length: {len(name)}, bytes: {name.encode('utf-8')}")
+    print(f"Category to delete: '{name}'")
 
     # Remove from custom categories if present
     if name in custom_categories:
         custom_categories.discard(name)
 
-    # Reassign videos synchronously so it completes before returning
-    reassigned_count = reassign_videos_from_category(name)
+    # Get library data first (this reliably returns all videos)
+    library_data = get_library(limit=1000)
+    videos = library_data.get("videos", [])
+
+    print(f"Retrieved {len(videos)} videos from library")
+
+    # Find videos with this category
+    videos_to_update = []
+    existing_categories = set()
+
+    for video in videos:
+        cats_str = video.get("categories", "")
+        cats_list = [c.strip() for c in cats_str.split(",") if c.strip()] if cats_str else []
+
+        # Collect all categories except the one being deleted
+        for cat in cats_list:
+            if cat != name:
+                existing_categories.add(cat)
+
+        # Check if this video has the category to delete
+        if name in cats_list:
+            print(f"Found video with category '{name}': {video.get('title', 'Unknown')[:50]}")
+            videos_to_update.append({
+                "id": video.get("id"),
+                "source": video.get("source"),
+                "current_categories": cats_list,
+                "summary": video.get("summary", ""),
+                "transcript": video.get("transcript", "")
+            })
+
+    print(f"Found {len(videos_to_update)} videos to update")
+    print(f"Existing categories: {existing_categories}")
+
+    # Update each video
+    reassigned_count = 0
+    dummy_vector = [0.0] * 1536
+
+    for video_info in videos_to_update:
+        source_url = video_info["source"]
+        current_cats = video_info["current_categories"]
+
+        # Remove the deleted category
+        new_cats = [c for c in current_cats if c != name]
+
+        # If no categories left, assign to Uncategorized or re-categorize
+        if not new_cats:
+            summary = video_info.get("summary", "")
+            transcript = video_info.get("transcript", "")
+
+            if (summary or transcript) and existing_categories:
+                new_category = auto_categorize_to_existing(summary, transcript, existing_categories)
+                new_cats = [new_category] if new_category else ["Uncategorized"]
+            else:
+                new_cats = ["Uncategorized"]
+
+        new_categories_str = ",".join(new_cats)
+        new_topic = new_cats[0]
+
+        # Find and update all chunks for this video
+        try:
+            chunk_results = index.query(
+                vector=dummy_vector,
+                top_k=100,
+                include_metadata=True,
+                filter={"source": {"$eq": source_url}}
+            )
+
+            for chunk in chunk_results.matches:
+                index.update(
+                    id=chunk.id,
+                    set_metadata={"categories": new_categories_str, "topic": new_topic}
+                )
+
+            print(f"Updated {len(chunk_results.matches)} chunks: {source_url[:50]} -> {new_categories_str}")
+            reassigned_count += 1
+
+        except Exception as e:
+            print(f"Error updating video {source_url}: {e}")
 
     return {"status": "success", "message": f"Category '{name}' removed. {reassigned_count} video(s) reassigned."}
 
