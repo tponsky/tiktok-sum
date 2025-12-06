@@ -218,11 +218,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const minScore = (document.getElementById('minScore')?.value || 0) / 100;
         const authorFilter = document.getElementById('authorFilter')?.value || '';
+        const includeWeb = document.getElementById('includeWeb')?.checked || false;
 
         loadingDiv.classList.remove('hidden');
+        if (includeWeb) {
+            loadingDiv.textContent = 'Searching library and web...';
+        } else {
+            loadingDiv.textContent = 'Thinking...';
+        }
         answerDiv.classList.add('hidden');
         matchesDiv.innerHTML = '';
-        answerDiv.textContent = '';
+        answerDiv.innerHTML = '';
 
         try {
             const url = new URL('/search', window.location.origin);
@@ -230,6 +236,9 @@ document.addEventListener('DOMContentLoaded', () => {
             url.searchParams.append('min_score', minScore);
             if (authorFilter) {
                 url.searchParams.append('author_filter', authorFilter);
+            }
+            if (includeWeb) {
+                url.searchParams.append('include_web', 'true');
             }
 
             const response = await fetch(url);
@@ -242,11 +251,26 @@ document.addEventListener('DOMContentLoaded', () => {
             displayResults(data);
         } catch (error) {
             console.error('Error:', error);
-            answerDiv.textContent = `Error: ${error.message}`;
+            answerDiv.innerHTML = `Error: ${error.message}`;
             answerDiv.classList.remove('hidden');
         } finally {
             loadingDiv.classList.add('hidden');
         }
+    }
+
+    // Simple markdown to HTML converter for links and formatting
+    function renderMarkdown(text) {
+        if (!text) return '';
+        return text
+            // Bold text
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            // Links [text](url)
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+            // Line breaks
+            .replace(/\n/g, '<br>')
+            // Bullet points
+            .replace(/^- (.+)$/gm, '<li>$1</li>')
+            .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
     }
 
     function displayResults(data) {
@@ -254,21 +278,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const matches = data.matches || [];
 
         if (data.answer && matches.length > 0) {
-            // Convert [Source X] citations to clickable links
-            let answerHtml = data.answer
-                .replace(/\n/g, '<br>')
-                .replace(/\[Source (\d+)\]/g, (match, num) => {
-                    const sourceNum = parseInt(num);
-                    if (sourceNum <= matches.length) {
-                        return `<a href="#source-${sourceNum}" class="source-link" onclick="scrollToSource(${sourceNum}); return false;">[Source ${sourceNum}]</a>`;
-                    }
-                    return match;
-                });
+            // First render markdown (links, bold, etc)
+            let answerHtml = renderMarkdown(data.answer);
 
-            answerDiv.innerHTML = `<h3>AI Answer:</h3><p>${answerHtml}</p>`;
+            // Then convert [Source X] citations to clickable scroll links
+            answerHtml = answerHtml.replace(/\[Source (\d+)\]/g, (match, num) => {
+                const sourceNum = parseInt(num);
+                if (sourceNum <= matches.length) {
+                    return `<a href="#source-${sourceNum}" class="source-link" onclick="scrollToSource(${sourceNum}); return false;">[Source ${sourceNum}]</a>`;
+                }
+                return match;
+            });
+
+            answerDiv.innerHTML = `<h3>AI Answer:</h3><div class="answer-content">${answerHtml}</div>`;
             answerDiv.classList.remove('hidden');
         } else if (data.answer) {
-            answerDiv.innerHTML = `<h3>AI Answer:</h3><p>${data.answer.replace(/\n/g, '<br>')}</p>`;
+            answerDiv.innerHTML = `<h3>AI Answer:</h3><div class="answer-content">${renderMarkdown(data.answer)}</div>`;
             answerDiv.classList.remove('hidden');
         }
 

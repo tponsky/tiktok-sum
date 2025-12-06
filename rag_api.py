@@ -49,10 +49,12 @@ class SearchRequest(BaseModel):
     summarize: bool = True
     min_score: float = 0.0  # Minimum relevance score
     author_filter: str = ""  # Filter by author
+    include_web: bool = False  # Also search the web
 
 class SearchResponse(BaseModel):
     answer: str
     matches: List[dict]
+    web_results: str = ""  # Web search results if requested
 
 
 # ----------------- Helper Functions --------------------------
@@ -203,21 +205,27 @@ def embed_query(text: str) -> List[float]:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
 
 
-def generate_rag_answer(query: str, contexts: List[dict]) -> str:
+def generate_rag_answer(query: str, contexts: List[dict], web_results: str = "") -> str:
     """Use retrieved chunks to produce a final summarized answer using gpt-4o."""
     if not client:
         raise HTTPException(status_code=500, detail="OpenAI client not initialized")
 
-    # Build context with citations - include key_takeaway for better answers
+    # Build context with citations - include key_takeaway, author, and source URL
     context_parts = []
+    source_map = {}  # Map source numbers to URLs for clickable links
+
     for i, ctx in enumerate(contexts, 1):
         title = ctx.get('title', 'Unknown')
         author = ctx.get('author', 'Unknown')
         key_takeaway = ctx.get('key_takeaway', '')
         summary = ctx.get('summary', '')
+        source_url = ctx.get('source', '')
+
+        # Store source mapping for later
+        source_map[i] = {"url": source_url, "title": title, "author": author}
 
         # Build rich context including key takeaway
-        context_entry = f"[Source {i}] Title: {title} | Author: {author}"
+        context_entry = f"[Source {i}] \"{title}\" by @{author}"
         if key_takeaway:
             context_entry += f"\nKey Insight: {key_takeaway}"
         context_entry += f"\nSummary: {summary}"
@@ -225,41 +233,64 @@ def generate_rag_answer(query: str, contexts: List[dict]) -> str:
 
     context_block = "\n\n".join(context_parts)
 
-    prompt = f"""You are an expert assistant analyzing video content from various platforms.
+    # Add web results if available
+    web_section = ""
+    if web_results:
+        web_section = f"\n\nAdditional information from web search:\n{web_results}"
+
+    prompt = f"""You are an expert assistant analyzing video content from creators.
 
 Question: {query}
 
-Relevant video content:
-{context_block}
+Video sources from your library:
+{context_block}{web_section}
 
 Instructions:
-- Answer the question using ONLY the information provided above
-- Prioritize sources where the Key Insight or Title directly relates to the question
-- Cite sources using [Source X] notation
+- Answer the question using the information provided above
+- When citing sources, mention the creator's name (e.g., "@username recommends..." or "According to @username...")
+- Include specific details, tips, or recommendations from the videos
+- Use [Source X] notation after mentioning advice from that source
+- If web results are included, you can also reference those as [Web]
 - If a source doesn't clearly relate to the question, don't force it into your answer
-- If none of the sources adequately answer the question, say so honestly
-- Be concise and specific
+- Be specific and actionable in your response
 
 Answer:"""
-    
+
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",  # Upgraded model
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=500,  # Increased for detailed answers
+            max_tokens=600,
             temperature=0.2,
         )
-        return response.choices[0].message.content.strip()
+        answer = response.choices[0].message.content.strip()
+
+        # Add source links at the bottom
+        if source_map:
+            answer += "\n\n---\n**Sources:**"
+            for num, info in source_map.items():
+                if info["url"]:
+                    answer += f"\n[Source {num}]: [{info['title'][:50]}...]({info['url']}) by @{info['author']}"
+
+        return answer
     except Exception as e:
         # Fallback to gpt-4o-mini if gpt-4o fails
         try:
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
+                max_tokens=600,
                 temperature=0.2,
             )
-            return response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content.strip()
+
+            if source_map:
+                answer += "\n\n---\n**Sources:**"
+                for num, info in source_map.items():
+                    if info["url"]:
+                        answer += f"\n[Source {num}]: [{info['title'][:50]}...]({info['url']}) by @{info['author']}"
+
+            return answer
         except:
             return f"Error generating answer: {str(e)}"
 
@@ -271,18 +302,19 @@ async def serve_frontend():
 
 @app.get("/search", response_model=SearchResponse)
 def search_rag_get(
-    q: str = Query(..., description="Search query"), 
+    q: str = Query(..., description="Search query"),
     top_k: int = 10,
     min_score: float = 0.0,
-    author_filter: str = ""
+    author_filter: str = "",
+    include_web: bool = False
 ):
     """GET endpoint for search."""
-    return perform_search(q, top_k, summarize=True, min_score=min_score, author_filter=author_filter)
+    return perform_search(q, top_k, summarize=True, min_score=min_score, author_filter=author_filter, include_web=include_web)
 
 @app.post("/search", response_model=SearchResponse)
 def search_rag_post(req: SearchRequest):
     """POST endpoint for search."""
-    return perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter)
+    return perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter, req.include_web)
 
 def expand_query_keywords(query: str) -> set:
     """Expand query with synonyms and related terms using GPT."""
@@ -320,13 +352,49 @@ Example output: learning, studying, education, tutorial, course, train, teach"""
         return set(w.lower() for w in query.split() if len(w) > 2)
 
 
-def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0.0, author_filter: str = "") -> SearchResponse:
+def search_web(query: str) -> str:
+    """Search the web using GPT's knowledge and Perplexity-style summarization."""
+    if not client:
+        return ""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": f"""Provide a brief, helpful summary of current information about: "{query}"
+
+Focus on:
+- Recent developments or updates (2024-2025)
+- Key tools, apps, or resources related to this topic
+- Best practices or recommendations from experts
+
+Keep it concise (3-5 bullet points). If this is about a very specific personal topic where web info wouldn't help, just say "No additional web information available."
+
+Response:"""
+            }],
+            max_tokens=300,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Web search error: {e}")
+        return ""
+
+
+def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0.0, author_filter: str = "", include_web: bool = False) -> SearchResponse:
     if not index:
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
 
     # 1. Expand query with synonyms for better keyword matching
     expanded_keywords = expand_query_keywords(query)
     print(f"Expanded keywords: {expanded_keywords}")
+
+    # 1b. Optionally search the web
+    web_results = ""
+    if include_web:
+        web_results = search_web(query)
+        print(f"Web results: {web_results[:200]}...")
 
     # 2. Embed original query (vector search uses semantic meaning)
     vector = embed_query(query)
@@ -390,15 +458,16 @@ def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0
     # Extract metadata for answer generation
     contexts_with_metadata = [match.metadata for match in filtered_matches if match.metadata]
 
-    # 4. Generate final LLM answer (RAG)
+    # 5. Generate final LLM answer (RAG)
     if summarize and contexts_with_metadata:
-        answer = generate_rag_answer(query, contexts_with_metadata)
+        answer = generate_rag_answer(query, contexts_with_metadata, web_results)
     else:
         answer = "Retrieved raw results only (summarize=False or no context found)."
 
     return SearchResponse(
         answer=answer,
-        matches=[{"id": m.id, "score": m.score, "metadata": m.metadata} for m in filtered_matches]
+        matches=[{"id": m.id, "score": m.score, "metadata": m.metadata} for m in filtered_matches],
+        web_results=web_results
     )
 
 class IngestRequest(BaseModel):
