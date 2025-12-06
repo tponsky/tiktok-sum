@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TikTok RAG Search</title>
-    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 
 <body>
@@ -78,6 +78,10 @@ https://www.tiktok.com/@user/video/789"></textarea>
             <div class="library-header">
                 <h3>Video Library</h3>
                 <div class="library-filters">
+                    <select id="librarySortBy">
+                        <option value="category">By Category</option>
+                        <option value="date">By Date Added</option>
+                    </select>
                     <select id="topicFilter">
                         <option value="">All Topics</option>
                     </select>
@@ -156,7 +160,7 @@ https://www.tiktok.com/@user/video/789"></textarea>
             </div>
         </div>
     </div>
-    <script src="/static/script.js?v=7"></script>
+    <script src="/static/script.js?v=8"></script>
 </body>
 
 </html>
