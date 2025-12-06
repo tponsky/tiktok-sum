@@ -351,11 +351,13 @@ def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0
 
     for m in results.matches:
         meta = m.metadata or {}
-        # Check for keyword matches in title, key_takeaway, and summary
+        # Check for keyword matches in title, key_takeaway, summary, and categories
         title = (meta.get("title", "") or "").lower()
         key_takeaway = (meta.get("key_takeaway", "") or "").lower()
         summary = (meta.get("summary", "") or "").lower()
-        combined_text = f"{title} {key_takeaway} {summary}"
+        categories = (meta.get("categories", "") or "").lower()
+        topic = (meta.get("topic", "") or "").lower()
+        combined_text = f"{title} {key_takeaway} {summary} {categories} {topic}"
 
         # Count keyword matches using expanded keywords (includes synonyms)
         keyword_matches = sum(1 for word in expanded_keywords if word in combined_text)
