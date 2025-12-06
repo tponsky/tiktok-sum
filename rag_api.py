@@ -627,11 +627,122 @@ def add_category(req: AddCategoryRequest):
     return {"status": "success", "category": name}
 
 @app.delete("/categories/{name}")
-def delete_category(name: str):
-    """Remove a custom category."""
+def delete_category(name: str, background_tasks: BackgroundTasks):
+    """Remove a category and reassign affected videos to other categories or Uncategorized."""
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    # Remove from custom categories if present
     if name in custom_categories:
         custom_categories.discard(name)
-    return {"status": "success", "message": f"Category '{name}' removed"}
+
+    # Find all videos with this category and reassign them in background
+    background_tasks.add_task(reassign_videos_from_category, name)
+
+    return {"status": "success", "message": f"Category '{name}' is being removed and videos are being reassigned"}
+
+
+def reassign_videos_from_category(category_to_remove: str):
+    """Background task to reassign videos from a deleted category."""
+    try:
+        # Get all existing categories (except the one being deleted)
+        dummy_vector = [0.0] * 1536
+        results = index.query(
+            vector=dummy_vector,
+            top_k=1000,
+            include_metadata=True,
+            filter={"chunk_index": {"$eq": 0}}
+        )
+
+        # Collect existing categories
+        existing_categories = set()
+        for match in results.matches:
+            meta = match.metadata or {}
+            cats = meta.get("categories", "")
+            if cats:
+                for cat in cats.split(","):
+                    cat = cat.strip()
+                    if cat and cat != category_to_remove:
+                        existing_categories.add(cat)
+
+        # Find videos that have the category to remove
+        for match in results.matches:
+            meta = match.metadata or {}
+            cats_str = meta.get("categories", "")
+
+            if not cats_str:
+                continue
+
+            cats_list = [c.strip() for c in cats_str.split(",") if c.strip()]
+
+            if category_to_remove not in cats_list:
+                continue
+
+            # Remove the deleted category
+            cats_list = [c for c in cats_list if c != category_to_remove]
+
+            # If video has no remaining categories, reassign based on content
+            if not cats_list:
+                transcript = meta.get("transcript", "")
+                summary = meta.get("summary", "")
+
+                if transcript or summary:
+                    # Try to assign to existing categories
+                    new_category = auto_categorize_to_existing(summary, transcript, existing_categories)
+                    cats_list = [new_category] if new_category else ["Uncategorized"]
+                else:
+                    cats_list = ["Uncategorized"]
+
+            # Update the video metadata
+            meta["categories"] = ", ".join(cats_list)
+            meta["topic"] = cats_list[0]  # Primary category
+
+            index.update(
+                id=match.id,
+                set_metadata=meta
+            )
+            print(f"Reassigned video {match.id} to categories: {meta['categories']}")
+
+    except Exception as e:
+        print(f"Error reassigning videos from category '{category_to_remove}': {e}")
+
+
+def auto_categorize_to_existing(summary: str, transcript: str, existing_categories: set) -> str:
+    """Categorize a video into one of the existing categories."""
+    if not client or not existing_categories:
+        return "Uncategorized"
+
+    categories_list = ", ".join(sorted(existing_categories))
+
+    prompt = f"""Based on the video content below, assign the MOST relevant category from this list:
+{categories_list}
+
+Summary: {summary[:500]}
+Transcript excerpt: {transcript[:500]}
+
+Instructions:
+- Choose ONLY from the categories listed above
+- If none fit well, respond with "Uncategorized"
+- Respond with ONLY the category name, nothing else
+
+Category:"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20,
+            temperature=0.3,
+        )
+        category = resp.choices[0].message.content.strip().strip('"\'.,')
+
+        # Verify it's in existing categories or return Uncategorized
+        if category in existing_categories:
+            return category
+        return "Uncategorized"
+    except Exception as e:
+        print(f"Auto-categorization error: {e}")
+        return "Uncategorized"
 
 @app.get("/categories")
 def get_all_categories():
