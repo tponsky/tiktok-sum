@@ -284,14 +284,54 @@ def search_rag_post(req: SearchRequest):
     """POST endpoint for search."""
     return perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter)
 
+def expand_query_keywords(query: str) -> set:
+    """Expand query with synonyms and related terms using GPT."""
+    if not client:
+        return set(query.lower().split())
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": f"""Given this search query, list the key search terms plus synonyms and closely related words.
+
+Query: "{query}"
+
+Return ONLY a comma-separated list of words (lowercase, no explanations). Include:
+- Original key terms from the query
+- Synonyms (e.g., learning -> studying, education, tutorial)
+- Related concepts (e.g., AI -> artificial intelligence, machine learning)
+- Word variations (e.g., learn -> learning, learner)
+
+Example output: learning, studying, education, tutorial, course, train, teach"""
+            }],
+            max_tokens=100,
+            temperature=0.3,
+        )
+        expanded = response.choices[0].message.content.strip().lower()
+        # Parse comma-separated words
+        words = set(w.strip() for w in expanded.split(",") if w.strip() and len(w.strip()) > 2)
+        # Also include original query words
+        words.update(w.lower() for w in query.split() if len(w) > 2)
+        return words
+    except Exception as e:
+        print(f"Query expansion error: {e}")
+        return set(w.lower() for w in query.split() if len(w) > 2)
+
+
 def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0.0, author_filter: str = "") -> SearchResponse:
     if not index:
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
 
-    # 1. Embed query
+    # 1. Expand query with synonyms for better keyword matching
+    expanded_keywords = expand_query_keywords(query)
+    print(f"Expanded keywords: {expanded_keywords}")
+
+    # 2. Embed original query (vector search uses semantic meaning)
     vector = embed_query(query)
 
-    # 2. Query Pinecone with optional metadata filter
+    # 3. Query Pinecone with optional metadata filter
     try:
         filter_dict = {}
         if author_filter:
@@ -306,8 +346,7 @@ def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pinecone query failed: {str(e)}")
 
-    # 3. Hybrid reranking: boost results that have keyword matches
-    query_words = set(query.lower().split())
+    # 4. Hybrid reranking: boost results that have keyword matches (using expanded keywords)
     scored_matches = []
 
     for m in results.matches:
@@ -318,11 +357,11 @@ def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0
         summary = (meta.get("summary", "") or "").lower()
         combined_text = f"{title} {key_takeaway} {summary}"
 
-        # Count keyword matches
-        keyword_matches = sum(1 for word in query_words if len(word) > 2 and word in combined_text)
+        # Count keyword matches using expanded keywords (includes synonyms)
+        keyword_matches = sum(1 for word in expanded_keywords if word in combined_text)
 
         # Boost score based on keyword matches (hybrid scoring)
-        keyword_boost = keyword_matches * 0.05  # 5% boost per keyword match
+        keyword_boost = keyword_matches * 0.03  # 3% boost per keyword match
         hybrid_score = m.score + keyword_boost
 
         scored_matches.append({
