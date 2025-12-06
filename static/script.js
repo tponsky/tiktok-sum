@@ -639,12 +639,24 @@ document.addEventListener('DOMContentLoaded', () => {
             categoryList.querySelectorAll('.delete-category-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const catName = btn.getAttribute('data-category');
+                    if (!confirm(`Delete category "${catName}"? Videos in this category will be reassigned to other relevant categories or "Uncategorized".`)) {
+                        return;
+                    }
+                    btn.disabled = true;
+                    btn.textContent = '...';
                     try {
-                        await fetch(`/categories/${encodeURIComponent(catName)}`, { method: 'DELETE' });
-                        loadCategoryList();
-                        loadFilters();
+                        const response = await fetch(`/categories/${encodeURIComponent(catName)}`, { method: 'DELETE' });
+                        if (response.ok) {
+                            alert(`Category "${catName}" deleted. Videos are being reassigned in the background.`);
+                            loadCategoryList();
+                            loadFilters();
+                            loadLibrary();
+                        } else {
+                            alert('Failed to delete category');
+                        }
                     } catch (error) {
                         console.error('Failed to delete category:', error);
+                        alert('Failed to delete category');
                     }
                 });
             });
