@@ -629,6 +629,17 @@ textarea:focus {
     font-size: 0.75em;
 }
 
+.recent-badge {
+    background: #10b981;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7em;
+    font-weight: 600;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
 /* Secondary Button */
 .secondary-btn {
     background: white;

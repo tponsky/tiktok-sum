@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const libraryStats = document.getElementById('libraryStats');
     const libraryVideos = document.getElementById('libraryVideos');
     const categoryNav = document.getElementById('categoryNav');
+    const librarySortBy = document.getElementById('librarySortBy');
 
     // Category management elements
     const manageCategoriesBtn = document.getElementById('manageCategoriesBtn');
@@ -391,6 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function displayLibrary(data) {
         const videos = data.videos || [];
+        const sortMode = librarySortBy.value;
 
         // Show stats
         libraryStats.innerHTML = `<p>${videos.length} video${videos.length !== 1 ? 's' : ''} in your library</p>`;
@@ -401,105 +403,131 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Group videos by topic
-        const groupedByTopic = {};
-        videos.forEach(video => {
-            // Handle multiple categories
-            const categories = video.categories ? video.categories.split(',').map(c => c.trim()) : [video.topic || 'Uncategorized'];
-            categories.forEach(cat => {
-                if (!cat) cat = 'Uncategorized';
-                if (!groupedByTopic[cat]) {
-                    groupedByTopic[cat] = [];
-                }
-                // Only add if not already in this category (avoid duplicates from same video)
-                if (!groupedByTopic[cat].find(v => v.id === video.id)) {
-                    groupedByTopic[cat].push(video);
-                }
-            });
-        });
+        // Helper to check if video is recent (within last 24 hours)
+        function isRecent(video) {
+            if (!video.ingested_at) return false;
+            const now = Date.now() / 1000; // Convert to seconds
+            const dayAgo = now - 86400;
+            return video.ingested_at > dayAgo;
+        }
 
-        // Build category quick-jump navigation
-        const sortedTopics = Object.keys(groupedByTopic).sort();
-        categoryNav.innerHTML = '<span class="nav-label">Jump to:</span> ' +
-            sortedTopics.map(topic =>
-                `<a href="#category-${encodeURIComponent(topic)}" class="category-nav-link" onclick="scrollToCategory('${topic}'); return false;">${topic} (${groupedByTopic[topic].length})</a>`
-            ).join(' ');
+        // Helper to create a video card
+        function createVideoCard(video) {
+            const card = document.createElement('div');
+            card.className = 'library-card';
+
+            const uploadDate = video.upload_date ? formatDate(video.upload_date) : '';
+            const duration = video.duration ? formatDuration(video.duration) : '';
+            const keyTakeaway = video.key_takeaway || '';
+            const transcript = video.transcript || '';
+            const summary = video.summary || '';
+            const categories = video.categories ? video.categories.split(',').map(c => c.trim()) : [];
+            const recentBadge = isRecent(video) ? '<span class="recent-badge">Recent</span>' : '';
+
+            card.innerHTML = `
+                <div class="library-card-header">
+                    <h5 class="library-title">${recentBadge}${video.title || 'Untitled'}</h5>
+                    <div class="card-actions">
+                        <button class="edit-details-btn" title="Edit title, summary, takeaway">✏️</button>
+                        <button class="edit-categories-btn" title="Edit categories">🏷️</button>
+                        <a href="${video.source}" target="_blank" class="video-link">↗</a>
+                    </div>
+                </div>
+                <p class="library-author">@${video.author || 'Unknown'}</p>
+                <div class="library-meta">
+                    ${uploadDate ? `<span>${uploadDate}</span>` : ''}
+                    ${duration ? `<span>${duration}</span>` : ''}
+                </div>
+                ${categories.length > 1 ? `<div class="multi-category-badges">${categories.map(c => `<span class="small-badge">${c}</span>`).join('')}</div>` : ''}
+                ${keyTakeaway ? `<div class="key-takeaway-small"><strong>Key:</strong> ${keyTakeaway}</div>` : ''}
+                <details class="content-details">
+                    <summary>Summary</summary>
+                    <p class="library-summary">${summary}</p>
+                </details>
+                ${transcript ? `
+                <details class="content-details">
+                    <summary>Transcript</summary>
+                    <p class="transcript-text">${transcript}</p>
+                </details>
+                ` : ''}
+            `;
+
+            // Add click handler for edit categories button
+            const editCatBtn = card.querySelector('.edit-categories-btn');
+            editCatBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openVideoCategoryModal(video);
+            });
+
+            // Add click handler for edit details button
+            const editDetailsBtn = card.querySelector('.edit-details-btn');
+            editDetailsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openVideoEditModal(video);
+            });
+
+            return card;
+        }
 
         libraryVideos.innerHTML = '';
 
-        // Create sections for each topic
-        sortedTopics.forEach(topic => {
-            const section = document.createElement('div');
-            section.className = 'library-section';
-            section.id = `category-${encodeURIComponent(topic)}`;
+        if (sortMode === 'date') {
+            // Sort by date - flat list, most recent first
+            categoryNav.innerHTML = '';
 
-            const header = document.createElement('h4');
-            header.className = 'topic-header';
-            header.innerHTML = `<span class="topic-name">${topic}</span> <span class="topic-count">(${groupedByTopic[topic].length})</span>`;
-            section.appendChild(header);
+            const sortedVideos = [...videos].sort((a, b) => (b.ingested_at || 0) - (a.ingested_at || 0));
 
             const videoGrid = document.createElement('div');
             videoGrid.className = 'video-grid';
 
-            groupedByTopic[topic].forEach(video => {
-                const card = document.createElement('div');
-                card.className = 'library-card';
-
-                const uploadDate = video.upload_date ? formatDate(video.upload_date) : '';
-                const duration = video.duration ? formatDuration(video.duration) : '';
-                const keyTakeaway = video.key_takeaway || '';
-                const transcript = video.transcript || '';
-                const summary = video.summary || '';
-                const categories = video.categories ? video.categories.split(',').map(c => c.trim()) : [];
-
-                card.innerHTML = `
-                    <div class="library-card-header">
-                        <h5 class="library-title">${video.title || 'Untitled'}</h5>
-                        <div class="card-actions">
-                            <button class="edit-details-btn" title="Edit title, summary, takeaway">✏️</button>
-                            <button class="edit-categories-btn" title="Edit categories">🏷️</button>
-                            <a href="${video.source}" target="_blank" class="video-link">↗</a>
-                        </div>
-                    </div>
-                    <p class="library-author">@${video.author || 'Unknown'}</p>
-                    <div class="library-meta">
-                        ${uploadDate ? `<span>${uploadDate}</span>` : ''}
-                        ${duration ? `<span>${duration}</span>` : ''}
-                    </div>
-                    ${categories.length > 1 ? `<div class="multi-category-badges">${categories.map(c => `<span class="small-badge">${c}</span>`).join('')}</div>` : ''}
-                    ${keyTakeaway ? `<div class="key-takeaway-small"><strong>Key:</strong> ${keyTakeaway}</div>` : ''}
-                    <details class="content-details">
-                        <summary>Summary</summary>
-                        <p class="library-summary">${summary}</p>
-                    </details>
-                    ${transcript ? `
-                    <details class="content-details">
-                        <summary>Transcript</summary>
-                        <p class="transcript-text">${transcript}</p>
-                    </details>
-                    ` : ''}
-                `;
-
-                // Add click handler for edit categories button
-                const editCatBtn = card.querySelector('.edit-categories-btn');
-                editCatBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    openVideoCategoryModal(video);
-                });
-
-                // Add click handler for edit details button
-                const editDetailsBtn = card.querySelector('.edit-details-btn');
-                editDetailsBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    openVideoEditModal(video);
-                });
-
-                videoGrid.appendChild(card);
+            sortedVideos.forEach(video => {
+                videoGrid.appendChild(createVideoCard(video));
             });
 
-            section.appendChild(videoGrid);
-            libraryVideos.appendChild(section);
-        });
+            libraryVideos.appendChild(videoGrid);
+        } else {
+            // Sort by category - grouped view
+            const groupedByTopic = {};
+            videos.forEach(video => {
+                const categories = video.categories ? video.categories.split(',').map(c => c.trim()) : [video.topic || 'Uncategorized'];
+                categories.forEach(cat => {
+                    if (!cat) cat = 'Uncategorized';
+                    if (!groupedByTopic[cat]) {
+                        groupedByTopic[cat] = [];
+                    }
+                    if (!groupedByTopic[cat].find(v => v.id === video.id)) {
+                        groupedByTopic[cat].push(video);
+                    }
+                });
+            });
+
+            const sortedTopics = Object.keys(groupedByTopic).sort();
+            categoryNav.innerHTML = '<span class="nav-label">Jump to:</span> ' +
+                sortedTopics.map(topic =>
+                    `<a href="#category-${encodeURIComponent(topic)}" class="category-nav-link" onclick="scrollToCategory('${topic}'); return false;">${topic} (${groupedByTopic[topic].length})</a>`
+                ).join(' ');
+
+            sortedTopics.forEach(topic => {
+                const section = document.createElement('div');
+                section.className = 'library-section';
+                section.id = `category-${encodeURIComponent(topic)}`;
+
+                const header = document.createElement('h4');
+                header.className = 'topic-header';
+                header.innerHTML = `<span class="topic-name">${topic}</span> <span class="topic-count">(${groupedByTopic[topic].length})</span>`;
+                section.appendChild(header);
+
+                const videoGrid = document.createElement('div');
+                videoGrid.className = 'video-grid';
+
+                groupedByTopic[topic].forEach(video => {
+                    videoGrid.appendChild(createVideoCard(video));
+                });
+
+                section.appendChild(videoGrid);
+                libraryVideos.appendChild(section);
+            });
+        }
     }
 
     // Global function to scroll to category
@@ -747,6 +775,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Library filter listeners
     topicFilter.addEventListener('change', loadLibrary);
     authorFilterLibrary.addEventListener('change', loadLibrary);
+    librarySortBy.addEventListener('change', loadLibrary);
     refreshLibrary.addEventListener('click', () => {
         loadFilters();
         loadLibrary();
