@@ -632,6 +632,10 @@ def delete_category(name: str):
     if not index:
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
 
+    print(f"=== DELETE CATEGORY REQUEST ===")
+    print(f"Category to delete: '{name}' (type: {type(name)}, repr: {repr(name)})")
+    print(f"Length: {len(name)}, bytes: {name.encode('utf-8')}")
+
     # Remove from custom categories if present
     if name in custom_categories:
         custom_categories.discard(name)
@@ -649,22 +653,36 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
         # Get all existing categories (except the one being deleted)
         dummy_vector = [0.0] * 1536
 
-        # First, get chunk_index=0 to identify unique videos and their categories
+        # Get ALL videos by querying with a much larger limit and potentially multiple batches
+        # Pinecone serverless has a max of 10,000 per query
+        all_matches = []
+        batch_size = 10000
+
+        # First batch
         results = index.query(
             vector=dummy_vector,
-            top_k=1000,
+            top_k=batch_size,
             include_metadata=True,
             filter={"chunk_index": {"$eq": 0}}
         )
+        all_matches.extend(results.matches)
+
+        # If we got a full batch, there might be more - but for now, 10k should be enough
+        # In production, you'd want to implement pagination using Pinecone's list() API
+        print(f"Retrieved {len(all_matches)} videos from Pinecone")
 
         # Collect existing categories and find videos to update
         existing_categories = set()
         videos_to_update = []  # List of (source_url, new_categories, new_topic)
 
-        for match in results.matches:
+        for match in all_matches:
             meta = match.metadata or {}
             cats = meta.get("categories", "")
             source_url = meta.get("source", "")
+
+            # Debug logging
+            if not source_url:
+                print(f"Warning: Video {match.id} has no source URL")
 
             if cats:
                 for cat in cats.split(","):
@@ -675,7 +693,12 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
             # Check if this video has the category to remove
             cats_list = [c.strip() for c in cats.split(",") if c.strip()] if cats else []
 
+            # Debug: Print sample of first 5 videos
+            if len(all_matches) <= 5 or match == all_matches[0]:
+                print(f"Sample video {match.id}: raw_categories='{cats}' (repr: {repr(cats)}), parsed={cats_list}")
+
             if category_to_remove in cats_list:
+                print(f"Found video with category '{category_to_remove}': {match.id} (source: {source_url})")
                 # Remove the deleted category
                 new_cats = [c for c in cats_list if c != category_to_remove]
 
@@ -692,7 +715,7 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
 
                 videos_to_update.append({
                     "source": source_url,
-                    "categories": ", ".join(new_cats),
+                    "categories": ",".join(new_cats),  # No space after comma to match storage format
                     "topic": new_cats[0]
                 })
 
@@ -706,6 +729,7 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
             new_topic = video_info["topic"]
 
             if not source_url:
+                print(f"Skipping video with no source URL")
                 continue
 
             # Find all chunks for this video
@@ -715,6 +739,8 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
                 include_metadata=True,
                 filter={"source": {"$eq": source_url}}
             )
+
+            print(f"Found {len(chunk_results.matches)} chunks for video {source_url}")
 
             # Update each chunk
             for chunk in chunk_results.matches:
@@ -731,6 +757,8 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
 
     except Exception as e:
         print(f"Error reassigning videos from category '{category_to_remove}': {e}")
+        import traceback
+        traceback.print_exc()
 
     return reassigned
 
@@ -781,9 +809,10 @@ def get_all_categories():
     try:
         # Get categories from existing videos
         dummy_vector = [0.0] * 1536
+        # Use larger limit to get all videos (max 10,000)
         results = index.query(
             vector=dummy_vector,
-            top_k=1000,
+            top_k=10000,
             include_metadata=True,
             filter={"chunk_index": {"$eq": 0}}
         )
