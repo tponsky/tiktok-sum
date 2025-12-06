@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: tiktok-rag
+    runtime: docker
+    repo: https://github.com/tponsky/tiktok-sum
+    branch: main
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+    healthCheckPath: /health
