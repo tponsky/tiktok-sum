@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const libraryVideos = document.getElementById('libraryVideos');
     const categoryNav = document.getElementById('categoryNav');
     const librarySortBy = document.getElementById('librarySortBy');
+    const reprocessAllBtn = document.getElementById('reprocessAllBtn');
 
     // Category management elements
     const manageCategoriesBtn = document.getElementById('manageCategoriesBtn');
@@ -428,6 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="library-card-header">
                     <h5 class="library-title">${recentBadge}${video.title || 'Untitled'}</h5>
                     <div class="card-actions">
+                        <button class="reprocess-btn" title="Reprocess with AI">🔄</button>
                         <button class="edit-details-btn" title="Edit title, summary, takeaway">✏️</button>
                         <button class="edit-categories-btn" title="Edit categories">🏷️</button>
                         <a href="${video.source}" target="_blank" class="video-link">↗</a>
@@ -451,6 +453,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 </details>
                 ` : ''}
             `;
+
+            // Add click handler for reprocess button
+            const reprocessBtn = card.querySelector('.reprocess-btn');
+            reprocessBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                reprocessBtn.disabled = true;
+                reprocessBtn.textContent = '⏳';
+                try {
+                    const response = await fetch('/video/reprocess', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ video_id: video.id })
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        reprocessBtn.textContent = '✅';
+                        setTimeout(() => loadLibrary(), 1000);
+                    } else {
+                        reprocessBtn.textContent = '❌';
+                        alert('Reprocess failed: ' + (result.detail || 'Unknown error'));
+                    }
+                } catch (err) {
+                    reprocessBtn.textContent = '❌';
+                    alert('Reprocess failed: ' + err.message);
+                }
+                setTimeout(() => {
+                    reprocessBtn.disabled = false;
+                    reprocessBtn.textContent = '🔄';
+                }, 2000);
+            });
 
             // Add click handler for edit categories button
             const editCatBtn = card.querySelector('.edit-categories-btn');
@@ -779,5 +811,34 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshLibrary.addEventListener('click', () => {
         loadFilters();
         loadLibrary();
+    });
+
+    // Reprocess all button
+    reprocessAllBtn.addEventListener('click', async () => {
+        if (!confirm('This will reprocess ALL videos in your library with AI to regenerate summaries, key takeaways, and categories. This may take a while and use API credits. Continue?')) {
+            return;
+        }
+
+        reprocessAllBtn.disabled = true;
+        reprocessAllBtn.textContent = 'Processing...';
+
+        try {
+            const response = await fetch('/video/reprocess/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_ids: [] }) // Empty array means all
+            });
+            const result = await response.json();
+            if (response.ok) {
+                alert(`Started reprocessing ${result.count} videos. This will run in the background. Refresh the library in a few minutes to see updates.`);
+            } else {
+                alert('Bulk reprocess failed: ' + (result.detail || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('Bulk reprocess failed: ' + err.message);
+        }
+
+        reprocessAllBtn.disabled = false;
+        reprocessAllBtn.textContent = 'Reprocess All';
     });
 });
