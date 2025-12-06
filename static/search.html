@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video RAG Search</title>
-    <link rel="stylesheet" href="/static/style.css?v=5">
+    <link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 
 <body>
@@ -23,6 +23,13 @@
             <div class="search-box">
                 <input type="text" id="searchInput" placeholder="Ask a question about your videos...">
                 <button id="searchBtn">Search</button>
+            </div>
+
+            <div class="search-options">
+                <label class="web-search-toggle">
+                    <input type="checkbox" id="includeWeb">
+                    Also search the web
+                </label>
             </div>
 
             <div class="filters">
@@ -160,7 +167,7 @@ https://www.instagram.com/reel/xyz"></textarea>
             </div>
         </div>
     </div>
-    <script src="/static/script.js?v=14"></script>
+    <script src="/static/script.js?v=15"></script>
 </body>
 
 </html>
