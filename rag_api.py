@@ -648,6 +648,8 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
     try:
         # Get all existing categories (except the one being deleted)
         dummy_vector = [0.0] * 1536
+
+        # First, get chunk_index=0 to identify unique videos and their categories
         results = index.query(
             vector=dummy_vector,
             top_k=1000,
@@ -655,67 +657,77 @@ def reassign_videos_from_category(category_to_remove: str) -> int:
             filter={"chunk_index": {"$eq": 0}}
         )
 
-        # Collect existing categories
+        # Collect existing categories and find videos to update
         existing_categories = set()
+        videos_to_update = []  # List of (source_url, new_categories, new_topic)
+
         for match in results.matches:
             meta = match.metadata or {}
             cats = meta.get("categories", "")
+            source_url = meta.get("source", "")
+
             if cats:
                 for cat in cats.split(","):
                     cat = cat.strip()
                     if cat and cat != category_to_remove:
                         existing_categories.add(cat)
 
-        print(f"Deleting category '{category_to_remove}'. Existing categories: {existing_categories}")
+            # Check if this video has the category to remove
+            cats_list = [c.strip() for c in cats.split(",") if c.strip()] if cats else []
 
-        # Find videos that have the category to remove and collect updates
-        updates = []
-        for match in results.matches:
-            meta = match.metadata or {}
-            cats_str = meta.get("categories", "")
+            if category_to_remove in cats_list:
+                # Remove the deleted category
+                new_cats = [c for c in cats_list if c != category_to_remove]
 
-            if not cats_str:
+                # If video has no remaining categories, reassign based on content
+                if not new_cats:
+                    transcript = meta.get("transcript", "")
+                    summary = meta.get("summary", "")
+
+                    if (transcript or summary) and existing_categories:
+                        new_category = auto_categorize_to_existing(summary, transcript, existing_categories)
+                        new_cats = [new_category] if new_category else ["Uncategorized"]
+                    else:
+                        new_cats = ["Uncategorized"]
+
+                videos_to_update.append({
+                    "source": source_url,
+                    "categories": ", ".join(new_cats),
+                    "topic": new_cats[0]
+                })
+
+        print(f"Deleting category '{category_to_remove}'. Found {len(videos_to_update)} videos to update.")
+        print(f"Existing categories: {existing_categories}")
+
+        # Now update ALL chunks for each affected video
+        for video_info in videos_to_update:
+            source_url = video_info["source"]
+            new_categories = video_info["categories"]
+            new_topic = video_info["topic"]
+
+            if not source_url:
                 continue
 
-            cats_list = [c.strip() for c in cats_str.split(",") if c.strip()]
+            # Find all chunks for this video
+            chunk_results = index.query(
+                vector=dummy_vector,
+                top_k=100,
+                include_metadata=True,
+                filter={"source": {"$eq": source_url}}
+            )
 
-            if category_to_remove not in cats_list:
-                continue
+            # Update each chunk
+            for chunk in chunk_results.matches:
+                try:
+                    index.update(
+                        id=chunk.id,
+                        set_metadata={"categories": new_categories, "topic": new_topic}
+                    )
+                except Exception as e:
+                    print(f"Error updating chunk {chunk.id}: {e}")
 
-            print(f"Video {match.id} has category to remove. Current: {cats_list}")
-
-            # Remove the deleted category
-            cats_list = [c for c in cats_list if c != category_to_remove]
-
-            # If video has no remaining categories, reassign based on content
-            if not cats_list:
-                transcript = meta.get("transcript", "")
-                summary = meta.get("summary", "")
-
-                if (transcript or summary) and existing_categories:
-                    # Try to assign to existing categories
-                    new_category = auto_categorize_to_existing(summary, transcript, existing_categories)
-                    cats_list = [new_category] if new_category else ["Uncategorized"]
-                else:
-                    cats_list = ["Uncategorized"]
-
-            updates.append({
-                "id": match.id,
-                "categories": ", ".join(cats_list),
-                "topic": cats_list[0]
-            })
-
-        # Now apply all updates
-        for update in updates:
-            try:
-                index.update(
-                    id=update["id"],
-                    set_metadata={"categories": update["categories"], "topic": update["topic"]}
-                )
-                print(f"Reassigned video {update['id']} to categories: {update['categories']}")
-                reassigned += 1
-            except Exception as e:
-                print(f"Error updating video {update['id']}: {e}")
+            print(f"Updated all chunks for video: {source_url} -> {new_categories}")
+            reassigned += 1
 
     except Exception as e:
         print(f"Error reassigning videos from category '{category_to_remove}': {e}")
