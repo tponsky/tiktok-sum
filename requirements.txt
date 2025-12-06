@@ -5,5 +5,4 @@ pinecone==8.0.0
 python-dotenv==1.0.1
 yt-dlp==2025.11.12
 pyperclip==1.11.0
-nltk==3.9.2
 pydantic==2.8.2

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TikTok RAG Search</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 
 <body>
@@ -15,6 +15,8 @@
         <div class="tabs">
             <button class="tab-btn active" data-tab="search">Search</button>
             <button class="tab-btn" data-tab="ingest">Add Source</button>
+            <button class="tab-btn" data-tab="bulk">Bulk Upload</button>
+            <button class="tab-btn" data-tab="library">Library</button>
         </div>
 
         <div id="search-tab" class="tab-content active">
@@ -29,7 +31,7 @@
                     <div class="filter-controls">
                         <label>
                             Min Relevance: <span id="minScoreValue">0%</span>
-                            <input type="range" id="minScore" min="0" max="100" value="0" step="5">
+                            <input type="range" id="minScore" min="0" max="100" value="0" step="1">
                         </label>
                         <label>
                             Author Filter:
@@ -50,12 +52,111 @@
             <div class="ingest-box">
                 <h3>Add New Video</h3>
                 <input type="text" id="ingestInput" placeholder="Paste TikTok URL here...">
+                <input type="text" id="ingestTopic" placeholder="Topic/Category (optional)">
                 <button id="ingestBtn">Add Video</button>
                 <div id="ingestStatus" class="hidden"></div>
             </div>
         </div>
+
+        <div id="bulk-tab" class="tab-content hidden">
+            <div class="ingest-box">
+                <h3>Bulk Upload Videos</h3>
+                <p class="help-text">Paste multiple TikTok URLs, one per line (max 50)</p>
+                <textarea id="bulkInput" placeholder="https://www.tiktok.com/@user/video/123
+https://www.tiktok.com/@user/video/456
+https://www.tiktok.com/@user/video/789"></textarea>
+                <input type="text" id="bulkTopic" placeholder="Topic/Category for all videos (optional)">
+                <div class="bulk-actions">
+                    <span id="urlCount">0 URLs detected</span>
+                    <button id="bulkBtn">Upload All</button>
+                </div>
+                <div id="bulkStatus" class="hidden"></div>
+            </div>
+        </div>
+
+        <div id="library-tab" class="tab-content hidden">
+            <div class="library-header">
+                <h3>Video Library</h3>
+                <div class="library-filters">
+                    <select id="topicFilter">
+                        <option value="">All Topics</option>
+                    </select>
+                    <select id="authorFilterLibrary">
+                        <option value="">All Creators</option>
+                    </select>
+                    <button id="refreshLibrary">Refresh</button>
+                    <button id="manageCategoriesBtn" class="secondary-btn">Manage Categories</button>
+                </div>
+            </div>
+            <!-- Category Quick Jump Navigation -->
+            <div id="categoryNav" class="category-nav"></div>
+            <div id="libraryLoading" class="hidden">Loading library...</div>
+            <div id="libraryContent">
+                <div id="libraryStats" class="library-stats"></div>
+                <div id="libraryVideos" class="library-grid"></div>
+            </div>
+        </div>
+
+        <!-- Category Management Modal -->
+        <div id="categoryModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Manage Categories</h3>
+                    <button class="close-btn" id="closeCategoryModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="add-category-form">
+                        <input type="text" id="newCategoryInput" placeholder="New category name...">
+                        <button id="addCategoryBtn">Add</button>
+                    </div>
+                    <div id="categoryList" class="category-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Category Edit Modal -->
+        <div id="videoCategoryModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Edit Video Categories</h3>
+                    <button class="close-btn" id="closeVideoCategoryModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p id="editVideoTitle" class="edit-video-title"></p>
+                    <div id="videoCategoryCheckboxes" class="category-checkboxes"></div>
+                    <button id="saveVideoCategoriesBtn" class="save-btn">Save Categories</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Edit Modal -->
+        <div id="videoEditModal" class="modal hidden">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h3>Edit Video Details</h3>
+                    <button class="close-btn" id="closeVideoEditModal" type="button">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="edit-form">
+                        <div class="edit-field">
+                            <label class="edit-label" for="editTitleInput">Title</label>
+                            <input type="text" id="editTitleInput" class="edit-input">
+                        </div>
+                        <div class="edit-field">
+                            <label class="edit-label" for="editKeyTakeawayInput">Key Takeaway</label>
+                            <input type="text" id="editKeyTakeawayInput" class="edit-input" placeholder="The main insight or tip...">
+                        </div>
+                        <div class="edit-field">
+                            <label class="edit-label" for="editSummaryInput">Summary</label>
+                            <textarea id="editSummaryInput" class="edit-textarea" rows="6"></textarea>
+                        </div>
+                    </div>
+                    <button id="saveVideoEditBtn" class="save-btn" type="button">Save Changes</button>
+                </div>
+            </div>
+        </div>
     </div>
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=7"></script>
 </body>
 
 </html>
