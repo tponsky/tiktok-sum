@@ -627,7 +627,7 @@ def add_category(req: AddCategoryRequest):
     return {"status": "success", "category": name}
 
 @app.delete("/categories/{name}")
-def delete_category(name: str, background_tasks: BackgroundTasks):
+def delete_category(name: str):
     """Remove a category and reassign affected videos to other categories or Uncategorized."""
     if not index:
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
@@ -636,14 +636,15 @@ def delete_category(name: str, background_tasks: BackgroundTasks):
     if name in custom_categories:
         custom_categories.discard(name)
 
-    # Find all videos with this category and reassign them in background
-    background_tasks.add_task(reassign_videos_from_category, name)
+    # Reassign videos synchronously so it completes before returning
+    reassigned_count = reassign_videos_from_category(name)
 
-    return {"status": "success", "message": f"Category '{name}' is being removed and videos are being reassigned"}
+    return {"status": "success", "message": f"Category '{name}' removed. {reassigned_count} video(s) reassigned."}
 
 
-def reassign_videos_from_category(category_to_remove: str):
-    """Background task to reassign videos from a deleted category."""
+def reassign_videos_from_category(category_to_remove: str) -> int:
+    """Reassign videos from a deleted category. Returns count of reassigned videos."""
+    reassigned = 0
     try:
         # Get all existing categories (except the one being deleted)
         dummy_vector = [0.0] * 1536
@@ -665,7 +666,10 @@ def reassign_videos_from_category(category_to_remove: str):
                     if cat and cat != category_to_remove:
                         existing_categories.add(cat)
 
-        # Find videos that have the category to remove
+        print(f"Deleting category '{category_to_remove}'. Existing categories: {existing_categories}")
+
+        # Find videos that have the category to remove and collect updates
+        updates = []
         for match in results.matches:
             meta = match.metadata or {}
             cats_str = meta.get("categories", "")
@@ -678,6 +682,8 @@ def reassign_videos_from_category(category_to_remove: str):
             if category_to_remove not in cats_list:
                 continue
 
+            print(f"Video {match.id} has category to remove. Current: {cats_list}")
+
             # Remove the deleted category
             cats_list = [c for c in cats_list if c != category_to_remove]
 
@@ -686,25 +692,35 @@ def reassign_videos_from_category(category_to_remove: str):
                 transcript = meta.get("transcript", "")
                 summary = meta.get("summary", "")
 
-                if transcript or summary:
+                if (transcript or summary) and existing_categories:
                     # Try to assign to existing categories
                     new_category = auto_categorize_to_existing(summary, transcript, existing_categories)
                     cats_list = [new_category] if new_category else ["Uncategorized"]
                 else:
                     cats_list = ["Uncategorized"]
 
-            # Update the video metadata
-            meta["categories"] = ", ".join(cats_list)
-            meta["topic"] = cats_list[0]  # Primary category
+            updates.append({
+                "id": match.id,
+                "categories": ", ".join(cats_list),
+                "topic": cats_list[0]
+            })
 
-            index.update(
-                id=match.id,
-                set_metadata=meta
-            )
-            print(f"Reassigned video {match.id} to categories: {meta['categories']}")
+        # Now apply all updates
+        for update in updates:
+            try:
+                index.update(
+                    id=update["id"],
+                    set_metadata={"categories": update["categories"], "topic": update["topic"]}
+                )
+                print(f"Reassigned video {update['id']} to categories: {update['categories']}")
+                reassigned += 1
+            except Exception as e:
+                print(f"Error updating video {update['id']}: {e}")
 
     except Exception as e:
         print(f"Error reassigning videos from category '{category_to_remove}': {e}")
+
+    return reassigned
 
 
 def auto_categorize_to_existing(summary: str, transcript: str, existing_categories: set) -> str:
@@ -771,8 +787,9 @@ def get_all_categories():
                     if cat:
                         video_categories.add(cat)
 
-        # Combine with custom categories
+        # Combine with custom categories and always include Uncategorized
         all_categories = video_categories.union(custom_categories)
+        all_categories.add("Uncategorized")
 
         return {"categories": sorted(list(all_categories))}
 
