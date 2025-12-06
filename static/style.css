@@ -640,6 +640,45 @@ textarea:focus {
     vertical-align: middle;
 }
 
+.reprocess-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1em;
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.reprocess-btn:hover {
+    background: #f0f0f0;
+}
+
+.reprocess-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.reprocess-all-btn {
+    background: #f59e0b;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.reprocess-all-btn:hover {
+    background: #d97706;
+}
+
+.reprocess-all-btn:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+}
+
 /* Secondary Button */
 .secondary-btn {
     background: white;

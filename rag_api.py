@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -56,6 +56,105 @@ class SearchResponse(BaseModel):
 
 
 # ----------------- Helper Functions --------------------------
+
+def summarize_transcript(transcript: str) -> str:
+    """Summarize a transcript using GPT-4o-mini."""
+    if not client:
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
+
+    prompt = (
+        "Summarize the following transcript in up to 120 words. "
+        "Include key bullet points and a one-sentence top summary.\n\n"
+        f"{transcript[:3000]}"
+    )
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=300,
+        temperature=0.2,
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def extract_key_takeaway(transcript: str, summary: str, title: str = "") -> str:
+    """Extract the single most important takeaway from a video."""
+    if not client:
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
+
+    prompt = f"""Based on the video content below, extract the ONE most important takeaway, tip, trick, fact, or insight.
+
+Title: {title}
+Summary: {summary}
+Transcript excerpt: {transcript[:1500]}
+
+Instructions:
+- Identify the key actionable tip, surprising fact, useful trick, or important insight
+- Write it as a single, clear, concise sentence (max 25 words)
+- Focus on what makes this video valuable - the "aha moment"
+- Start with an action verb or key noun (e.g., "Use...", "The secret is...", "Always...")
+
+Key Takeaway:"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=60,
+        temperature=0.3,
+    )
+    takeaway = resp.choices[0].message.content.strip()
+    takeaway = takeaway.strip('"\'.,')
+    if takeaway.lower().startswith("key takeaway:"):
+        takeaway = takeaway[13:].strip()
+    return takeaway
+
+
+def auto_categorize(summary: str, title: str = "") -> str:
+    """Use GPT to automatically categorize a video based on its summary and title."""
+    if not client:
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
+
+    prompt = f"""Based on the video title and summary below, assign ONE category/topic that best describes this content.
+
+Title: {title}
+Summary: {summary}
+
+Choose from common categories like:
+- Fitness & Health
+- Cooking & Recipes
+- Beauty & Skincare
+- Fashion & Style
+- Finance & Money
+- Technology & Gadgets
+- Entertainment & Comedy
+- Education & Learning
+- Travel & Adventure
+- Relationships & Dating
+- Productivity & Self-Improvement
+- Music & Dance
+- Sports
+- Gaming
+- DIY & Crafts
+- Parenting & Family
+- Pets & Animals
+- News & Current Events
+- Science & Nature
+- Art & Design
+
+Or create a new specific category if none of these fit well.
+
+Respond with ONLY the category name, nothing else. Keep it short (1-3 words)."""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=20,
+        temperature=0.3,
+    )
+    category = resp.choices[0].message.content.strip()
+    category = category.strip('"\'.,')
+    return category
+
+
 def embed_query(text: str) -> List[float]:
     """Generate embedding for the search query using text-embedding-3-small."""
     if not client:
@@ -540,3 +639,144 @@ def get_all_categories():
 @app.get("/health")
 def health():
     return {"status": "ok", "message": "TikTok RAG API running!"}
+
+
+class ReprocessRequest(BaseModel):
+    video_id: str
+
+
+class BulkReprocessRequest(BaseModel):
+    video_ids: List[str] = []  # Empty list means reprocess all
+
+
+@app.post("/video/reprocess")
+def reprocess_video(req: ReprocessRequest):
+    """Reprocess a single video to regenerate summary, key takeaway, and category."""
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    try:
+        # Fetch the video's current data
+        result = index.fetch(ids=[req.video_id])
+
+        if not result.vectors or req.video_id not in result.vectors:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        vector_data = result.vectors[req.video_id]
+        meta = vector_data.metadata or {}
+
+        transcript = meta.get("transcript", "")
+        title = meta.get("title", "")
+
+        if not transcript:
+            raise HTTPException(status_code=400, detail="Video has no transcript to reprocess")
+
+        # Generate new summary, key takeaway, and category
+        new_summary = summarize_transcript(transcript)
+        new_key_takeaway = extract_key_takeaway(transcript, new_summary, title)
+        new_category = auto_categorize(new_summary, title)
+
+        # Update metadata
+        meta["summary"] = new_summary
+        meta["key_takeaway"] = new_key_takeaway
+        meta["topic"] = new_category
+        meta["categories"] = new_category
+
+        # Update the vector with new metadata
+        index.update(
+            id=req.video_id,
+            set_metadata=meta
+        )
+
+        return {
+            "status": "success",
+            "video_id": req.video_id,
+            "summary": new_summary,
+            "key_takeaway": new_key_takeaway,
+            "category": new_category
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reprocess failed: {str(e)}")
+
+
+@app.post("/video/reprocess/bulk")
+def reprocess_bulk(req: BulkReprocessRequest, background_tasks: BackgroundTasks):
+    """Reprocess multiple videos (or all if no IDs provided) in the background."""
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    try:
+        # If no IDs provided, get all videos
+        if not req.video_ids:
+            # Query to get all videos (chunk_index=0)
+            dummy_vector = [0.0] * 1536
+            results = index.query(
+                vector=dummy_vector,
+                top_k=1000,
+                include_metadata=True,
+                filter={"chunk_index": {"$eq": 0}}
+            )
+            video_ids = [match.id for match in results.matches]
+        else:
+            video_ids = req.video_ids
+
+        if not video_ids:
+            return {"status": "success", "message": "No videos to reprocess", "count": 0}
+
+        # Process in background
+        background_tasks.add_task(reprocess_videos_task, video_ids)
+
+        return {
+            "status": "processing_started",
+            "message": f"Started reprocessing {len(video_ids)} videos",
+            "count": len(video_ids)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk reprocess failed: {str(e)}")
+
+
+def reprocess_videos_task(video_ids: List[str]):
+    """Background task to reprocess multiple videos."""
+    for video_id in video_ids:
+        try:
+            result = index.fetch(ids=[video_id])
+
+            if not result.vectors or video_id not in result.vectors:
+                print(f"Video {video_id} not found, skipping")
+                continue
+
+            vector_data = result.vectors[video_id]
+            meta = vector_data.metadata or {}
+
+            transcript = meta.get("transcript", "")
+            title = meta.get("title", "")
+
+            if not transcript:
+                print(f"Video {video_id} has no transcript, skipping")
+                continue
+
+            # Generate new summary, key takeaway, and category
+            new_summary = summarize_transcript(transcript)
+            new_key_takeaway = extract_key_takeaway(transcript, new_summary, title)
+            new_category = auto_categorize(new_summary, title)
+
+            # Update metadata
+            meta["summary"] = new_summary
+            meta["key_takeaway"] = new_key_takeaway
+            meta["topic"] = new_category
+            meta["categories"] = new_category
+
+            # Update the vector
+            index.update(
+                id=video_id,
+                set_metadata=meta
+            )
+
+            print(f"Reprocessed video {video_id}: {title}")
+
+        except Exception as e:
+            print(f"Error reprocessing {video_id}: {e}")
