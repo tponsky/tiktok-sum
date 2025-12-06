@@ -155,6 +155,39 @@ Respond with ONLY the category name, nothing else. Keep it short (1-3 words)."""
     return category
 
 
+def generate_title(transcript: str, summary: str, key_takeaway: str = "") -> str:
+    """Generate a descriptive title based on the video content."""
+    if not client:
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
+
+    prompt = f"""Based on the video content below, create a short, descriptive title (5-10 words max).
+
+Key Takeaway: {key_takeaway}
+Summary: {summary}
+Transcript excerpt: {transcript[:1000]}
+
+Instructions:
+- Create a title that captures the main topic or value of the video
+- Make it specific and descriptive (not generic like "Great Tips" or "Must Watch")
+- Keep it concise: 5-10 words maximum
+- Don't use quotes or colons
+- Examples of good titles: "How to Use Pumeli for AI Marketing", "The Secret to Perfect Sourdough Bread", "5 Tax Deductions Most People Miss"
+
+Title:"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=30,
+        temperature=0.3,
+    )
+    title = resp.choices[0].message.content.strip()
+    title = title.strip('"\'.,')
+    if title.lower().startswith("title:"):
+        title = title[6:].strip()
+    return title
+
+
 def embed_query(text: str) -> List[float]:
     """Generate embedding for the search query using text-embedding-3-small."""
     if not client:
@@ -666,21 +699,22 @@ def reprocess_video(req: ReprocessRequest):
         meta = vector_data.metadata or {}
 
         transcript = meta.get("transcript", "")
-        title = meta.get("title", "")
 
         if not transcript:
             raise HTTPException(status_code=400, detail="Video has no transcript to reprocess")
 
-        # Generate new summary, key takeaway, and category
+        # Generate new summary, key takeaway, category, and title
         new_summary = summarize_transcript(transcript)
-        new_key_takeaway = extract_key_takeaway(transcript, new_summary, title)
-        new_category = auto_categorize(new_summary, title)
+        new_key_takeaway = extract_key_takeaway(transcript, new_summary, "")
+        new_category = auto_categorize(new_summary, "")
+        new_title = generate_title(transcript, new_summary, new_key_takeaway)
 
         # Update metadata
         meta["summary"] = new_summary
         meta["key_takeaway"] = new_key_takeaway
         meta["topic"] = new_category
         meta["categories"] = new_category
+        meta["title"] = new_title
 
         # Update the vector with new metadata
         index.update(
@@ -691,6 +725,7 @@ def reprocess_video(req: ReprocessRequest):
         return {
             "status": "success",
             "video_id": req.video_id,
+            "title": new_title,
             "summary": new_summary,
             "key_takeaway": new_key_takeaway,
             "category": new_category
@@ -753,22 +788,23 @@ def reprocess_videos_task(video_ids: List[str]):
             meta = vector_data.metadata or {}
 
             transcript = meta.get("transcript", "")
-            title = meta.get("title", "")
 
             if not transcript:
                 print(f"Video {video_id} has no transcript, skipping")
                 continue
 
-            # Generate new summary, key takeaway, and category
+            # Generate new summary, key takeaway, category, and title
             new_summary = summarize_transcript(transcript)
-            new_key_takeaway = extract_key_takeaway(transcript, new_summary, title)
-            new_category = auto_categorize(new_summary, title)
+            new_key_takeaway = extract_key_takeaway(transcript, new_summary, "")
+            new_category = auto_categorize(new_summary, "")
+            new_title = generate_title(transcript, new_summary, new_key_takeaway)
 
             # Update metadata
             meta["summary"] = new_summary
             meta["key_takeaway"] = new_key_takeaway
             meta["topic"] = new_category
             meta["categories"] = new_category
+            meta["title"] = new_title
 
             # Update the vector
             index.update(
@@ -776,7 +812,7 @@ def reprocess_videos_task(video_ids: List[str]):
                 set_metadata=meta
             )
 
-            print(f"Reprocessed video {video_id}: {title}")
+            print(f"Reprocessed video {video_id}: {new_title}")
 
         except Exception as e:
             print(f"Error reprocessing {video_id}: {e}")

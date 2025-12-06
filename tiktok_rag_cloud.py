@@ -191,6 +191,42 @@ Key Takeaway:"""
         return ""
 
 
+def generate_title(transcript: str, summary: str, key_takeaway: str = "") -> str:
+    """Generate a descriptive title based on the video content."""
+    prompt = f"""Based on the video content below, create a short, descriptive title (5-10 words max).
+
+Key Takeaway: {key_takeaway}
+Summary: {summary}
+Transcript excerpt: {transcript[:1000]}
+
+Instructions:
+- Create a title that captures the main topic or value of the video
+- Make it specific and descriptive (not generic like "Great Tips" or "Must Watch")
+- Keep it concise: 5-10 words maximum
+- Don't use quotes or colons
+- Examples of good titles: "How to Use Pumeli for AI Marketing", "The Secret to Perfect Sourdough Bread", "5 Tax Deductions Most People Miss"
+
+Title:"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=30,
+            temperature=0.3,
+        )
+        title = resp.choices[0].message.content.strip()
+        # Clean up
+        title = title.strip('"\'.,')
+        # Remove "Title:" prefix if present
+        if title.lower().startswith("title:"):
+            title = title[6:].strip()
+        return title
+    except Exception as e:
+        print(f"Title generation error: {e}")
+        return ""
+
+
 def auto_categorize(summary: str, title: str = "") -> str:
     """Use GPT to automatically categorize a video based on its summary and title."""
     prompt = f"""Based on the video title and summary below, assign ONE category/topic that best describes this content.
@@ -294,18 +330,26 @@ def process_urls(urls: List[str], topic: str = ""):
 
             # 4b. Auto-categorize if no topic provided
             video_topic = topic
-            video_title = video_metadata.get("title", "")
+            original_title = video_metadata.get("title", "")
             first_summary = summaries[0]["summary"] if summaries else ""
 
             if not video_topic and summaries:
-                video_topic = auto_categorize(first_summary, video_title)
+                video_topic = auto_categorize(first_summary, original_title)
                 print(f"Auto-categorized as: {video_topic}")
 
             # 4c. Extract key takeaway
             key_takeaway = ""
             if summaries:
-                key_takeaway = extract_key_takeaway(transcript, first_summary, video_title)
+                key_takeaway = extract_key_takeaway(transcript, first_summary, original_title)
                 print(f"Key takeaway: {key_takeaway}")
+
+            # 4d. Generate descriptive title from content
+            video_title = original_title
+            if summaries:
+                generated_title = generate_title(transcript, first_summary, key_takeaway)
+                if generated_title:
+                    video_title = generated_title
+                    print(f"Generated title: {video_title}")
 
             # 5. Prepare docs with enhanced metadata
             docs, metas = [], []
@@ -322,7 +366,7 @@ def process_urls(urls: List[str], topic: str = ""):
                     "source": url,
                     "summary": item["summary"],
                     "chunk_index": i,
-                    "title": video_metadata.get("title", ""),
+                    "title": video_title,
                     "author": video_metadata.get("author", ""),
                     "upload_date": video_metadata.get("upload_date", ""),
                     "duration": video_metadata.get("duration", 0),
