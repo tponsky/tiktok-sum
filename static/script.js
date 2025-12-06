@@ -639,6 +639,10 @@ document.addEventListener('DOMContentLoaded', () => {
             categoryList.querySelectorAll('.delete-category-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const catName = btn.getAttribute('data-category');
+                    if (catName === 'Uncategorized') {
+                        alert('"Uncategorized" cannot be deleted.');
+                        return;
+                    }
                     if (!confirm(`Delete category "${catName}"? Videos in this category will be reassigned to other relevant categories or "Uncategorized".`)) {
                         return;
                     }
@@ -646,17 +650,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.textContent = '...';
                     try {
                         const response = await fetch(`/categories/${encodeURIComponent(catName)}`, { method: 'DELETE' });
+                        const result = await response.json();
                         if (response.ok) {
-                            alert(`Category "${catName}" deleted. Videos are being reassigned in the background.`);
+                            alert(result.message || `Category "${catName}" deleted.`);
                             loadCategoryList();
                             loadFilters();
                             loadLibrary();
                         } else {
-                            alert('Failed to delete category');
+                            alert('Failed to delete category: ' + (result.detail || 'Unknown error'));
+                            btn.disabled = false;
+                            btn.textContent = '×';
                         }
                     } catch (error) {
                         console.error('Failed to delete category:', error);
                         alert('Failed to delete category');
+                        btn.disabled = false;
+                        btn.textContent = '×';
                     }
                 });
             });
