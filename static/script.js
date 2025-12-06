@@ -28,7 +28,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const libraryVideos = document.getElementById('libraryVideos');
     const categoryNav = document.getElementById('categoryNav');
     const librarySortBy = document.getElementById('librarySortBy');
-    const reprocessAllBtn = document.getElementById('reprocessAllBtn');
 
     // Category management elements
     const manageCategoriesBtn = document.getElementById('manageCategoriesBtn');
@@ -57,8 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
 
-    // TikTok URL regex
-    const TIKTOK_URL_REGEX = /https?:\/\/(?:www\.)?tiktok\.com\/[^\s]+/g;
+    // Video URL regex - supports TikTok, YouTube, Instagram, Twitter/X, Facebook, Vimeo, Reddit
+    const VIDEO_URL_REGEX = /https?:\/\/(?:www\.)?(?:tiktok\.com|youtube\.com|youtu\.be|instagram\.com|twitter\.com|x\.com|facebook\.com|fb\.watch|vimeo\.com|reddit\.com|v\.redd\.it)\/[^\s]+/g;
 
     // Current video being edited
     let currentEditingVideo = null;
@@ -188,9 +187,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Helper function to extract TikTok URLs
+    // Helper function to extract video URLs
     function extractUrls(text) {
-        const matches = text.match(TIKTOK_URL_REGEX) || [];
+        const matches = text.match(VIDEO_URL_REGEX) || [];
         // Remove duplicates
         return [...new Set(matches)];
     }
@@ -811,34 +810,5 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshLibrary.addEventListener('click', () => {
         loadFilters();
         loadLibrary();
-    });
-
-    // Reprocess all button
-    reprocessAllBtn.addEventListener('click', async () => {
-        if (!confirm('This will reprocess ALL videos in your library with AI to regenerate summaries, key takeaways, and categories. This may take a while and use API credits. Continue?')) {
-            return;
-        }
-
-        reprocessAllBtn.disabled = true;
-        reprocessAllBtn.textContent = 'Processing...';
-
-        try {
-            const response = await fetch('/video/reprocess/bulk', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_ids: [] }) // Empty array means all
-            });
-            const result = await response.json();
-            if (response.ok) {
-                alert(`Started reprocessing ${result.count} videos. This will run in the background. Refresh the library in a few minutes to see updates.`);
-            } else {
-                alert('Bulk reprocess failed: ' + (result.detail || 'Unknown error'));
-            }
-        } catch (err) {
-            alert('Bulk reprocess failed: ' + err.message);
-        }
-
-        reprocessAllBtn.disabled = false;
-        reprocessAllBtn.textContent = 'Reprocess All';
     });
 });
