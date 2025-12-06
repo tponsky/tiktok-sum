@@ -19,7 +19,6 @@ import time
 from typing import List
 import pyperclip
 import yt_dlp
-from nltk.tokenize import sent_tokenize
 from dotenv import load_dotenv
 
 # --- Load ENV ---
@@ -40,13 +39,6 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Pinecone ---
 from pinecone import Pinecone, ServerlessSpec
-
-import nltk
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-    nltk.download('punkt_tab')
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "tiktok-rag"
@@ -118,9 +110,16 @@ def transcribe_with_openai(audio_path: str) -> str:
     return resp.text
 
 
+def simple_sent_tokenize(text: str) -> List[str]:
+    """Simple sentence tokenizer using regex (no NLTK dependency)."""
+    # Split on sentence-ending punctuation followed by space or end
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    return [s.strip() for s in sentences if s.strip()]
+
+
 def chunk_text(text: str, max_chars: int = 1500, overlap: int = 200) -> List[str]:
     """Chunk text with overlap to preserve context."""
-    sents = sent_tokenize(text)
+    sents = simple_sent_tokenize(text)
     chunks, cur = [], ""
 
     for s in sents:
@@ -157,6 +156,90 @@ def summarize_chunk(chunk: str) -> str:
     return resp.choices[0].message.content.strip()
 
 
+def extract_key_takeaway(transcript: str, summary: str, title: str = "") -> str:
+    """Extract the single most important takeaway, tip, or insight from a video."""
+    prompt = f"""Based on the video content below, extract the ONE most important takeaway, tip, trick, fact, or insight.
+
+Title: {title}
+Summary: {summary}
+Transcript excerpt: {transcript[:1500]}
+
+Instructions:
+- Identify the key actionable tip, surprising fact, useful trick, or important insight
+- Write it as a single, clear, concise sentence (max 25 words)
+- Focus on what makes this video valuable - the "aha moment"
+- Start with an action verb or key noun (e.g., "Use...", "The secret is...", "Always...")
+
+Key Takeaway:"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=60,
+            temperature=0.3,
+        )
+        takeaway = resp.choices[0].message.content.strip()
+        # Clean up
+        takeaway = takeaway.strip('"\'.,')
+        # Remove "Key Takeaway:" prefix if present
+        if takeaway.lower().startswith("key takeaway:"):
+            takeaway = takeaway[13:].strip()
+        return takeaway
+    except Exception as e:
+        print(f"Key takeaway extraction error: {e}")
+        return ""
+
+
+def auto_categorize(summary: str, title: str = "") -> str:
+    """Use GPT to automatically categorize a video based on its summary and title."""
+    prompt = f"""Based on the video title and summary below, assign ONE category/topic that best describes this content.
+
+Title: {title}
+Summary: {summary}
+
+Choose from common categories like:
+- Fitness & Health
+- Cooking & Recipes
+- Beauty & Skincare
+- Fashion & Style
+- Finance & Money
+- Technology & Gadgets
+- Entertainment & Comedy
+- Education & Learning
+- Travel & Adventure
+- Relationships & Dating
+- Productivity & Self-Improvement
+- Music & Dance
+- Sports
+- Gaming
+- DIY & Crafts
+- Parenting & Family
+- Pets & Animals
+- News & Current Events
+- Science & Nature
+- Art & Design
+
+Or create a new specific category if none of these fit well.
+
+Respond with ONLY the category name, nothing else. Keep it short (1-3 words)."""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20,
+            temperature=0.3,
+        )
+        category = resp.choices[0].message.content.strip()
+        # Clean up the response - remove quotes, periods, etc.
+        category = category.strip('"\'.,')
+        return category
+    except Exception as e:
+        print(f"Auto-categorization error: {e}")
+        return "Uncategorized"
+
+
 def embed_text(texts: List[str]) -> List[List[float]]:
     resp = client.embeddings.create(
         model="text-embedding-3-small",
@@ -171,7 +254,13 @@ def upsert_to_pinecone(vectors: List[dict]):
 
 # -------- Main Pipeline -------- #
 
-def process_urls(urls: List[str]):
+def process_urls(urls: List[str], topic: str = ""):
+    """Process TikTok URLs and ingest them into Pinecone.
+
+    Args:
+        urls: List of TikTok URLs to process
+        topic: Optional topic/category for organizing videos
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         for url in urls:
             print("Processing:", url)
@@ -203,9 +292,28 @@ def process_urls(urls: List[str]):
                     s = ch[:400]
                 summaries.append({"chunk": ch, "summary": s})
 
+            # 4b. Auto-categorize if no topic provided
+            video_topic = topic
+            video_title = video_metadata.get("title", "")
+            first_summary = summaries[0]["summary"] if summaries else ""
+
+            if not video_topic and summaries:
+                video_topic = auto_categorize(first_summary, video_title)
+                print(f"Auto-categorized as: {video_topic}")
+
+            # 4c. Extract key takeaway
+            key_takeaway = ""
+            if summaries:
+                key_takeaway = extract_key_takeaway(transcript, first_summary, video_title)
+                print(f"Key takeaway: {key_takeaway}")
+
             # 5. Prepare docs with enhanced metadata
             docs, metas = [], []
             timestamp = int(time.time())
+
+            # Store categories as comma-separated string (Pinecone doesn't support arrays well for filtering)
+            # Primary topic is the first one
+            categories_str = video_topic if video_topic else "Uncategorized"
 
             for i, item in enumerate(summaries):
                 merged = item["chunk"] + "\n\nSummary:\n" + item["summary"]
@@ -219,6 +327,11 @@ def process_urls(urls: List[str]):
                     "upload_date": video_metadata.get("upload_date", ""),
                     "duration": video_metadata.get("duration", 0),
                     "view_count": video_metadata.get("view_count", 0),
+                    "topic": video_topic,
+                    "categories": categories_str,  # Comma-separated list for multiple categories
+                    "key_takeaway": key_takeaway,
+                    "transcript": transcript[:3000],  # Store first 3000 chars of transcript
+                    "ingested_at": timestamp,
                 })
 
             # 6. Embeddings
