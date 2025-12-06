@@ -208,28 +208,37 @@ def generate_rag_answer(query: str, contexts: List[dict]) -> str:
     if not client:
         raise HTTPException(status_code=500, detail="OpenAI client not initialized")
 
-    # Build context with citations
+    # Build context with citations - include key_takeaway for better answers
     context_parts = []
     for i, ctx in enumerate(contexts, 1):
         title = ctx.get('title', 'Unknown')
         author = ctx.get('author', 'Unknown')
+        key_takeaway = ctx.get('key_takeaway', '')
         summary = ctx.get('summary', '')
-        context_parts.append(f"[Source {i}] Title: {title} | Author: {author}\n{summary}")
-    
+
+        # Build rich context including key takeaway
+        context_entry = f"[Source {i}] Title: {title} | Author: {author}"
+        if key_takeaway:
+            context_entry += f"\nKey Insight: {key_takeaway}"
+        context_entry += f"\nSummary: {summary}"
+        context_parts.append(context_entry)
+
     context_block = "\n\n".join(context_parts)
 
-    prompt = f"""You are an expert assistant analyzing TikTok video content.
+    prompt = f"""You are an expert assistant analyzing video content from various platforms.
 
 Question: {query}
 
-Context from videos:
+Relevant video content:
 {context_block}
 
 Instructions:
-- Provide a comprehensive answer based ONLY on the context above
+- Answer the question using ONLY the information provided above
+- Prioritize sources where the Key Insight or Title directly relates to the question
 - Cite sources using [Source X] notation
-- Use bullet points for clarity when appropriate
-- If the context doesn't contain enough information, acknowledge this
+- If a source doesn't clearly relate to the question, don't force it into your answer
+- If none of the sources adequately answer the question, say so honestly
+- Be concise and specific
 
 Answer:"""
     
@@ -287,19 +296,50 @@ def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0
         filter_dict = {}
         if author_filter:
             filter_dict["author"] = {"$eq": author_filter}
-        
+
         results = index.query(
             vector=vector,
-            top_k=top_k * 2,  # Get more results for filtering
+            top_k=top_k * 3,  # Get more results for reranking
             include_metadata=True,
             filter=filter_dict if filter_dict else None
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pinecone query failed: {str(e)}")
 
-    # 3. Filter by minimum score
-    filtered_matches = [m for m in results.matches if m.score >= min_score][:top_k]
-    
+    # 3. Hybrid reranking: boost results that have keyword matches
+    query_words = set(query.lower().split())
+    scored_matches = []
+
+    for m in results.matches:
+        meta = m.metadata or {}
+        # Check for keyword matches in title, key_takeaway, and summary
+        title = (meta.get("title", "") or "").lower()
+        key_takeaway = (meta.get("key_takeaway", "") or "").lower()
+        summary = (meta.get("summary", "") or "").lower()
+        combined_text = f"{title} {key_takeaway} {summary}"
+
+        # Count keyword matches
+        keyword_matches = sum(1 for word in query_words if len(word) > 2 and word in combined_text)
+
+        # Boost score based on keyword matches (hybrid scoring)
+        keyword_boost = keyword_matches * 0.05  # 5% boost per keyword match
+        hybrid_score = m.score + keyword_boost
+
+        scored_matches.append({
+            "match": m,
+            "hybrid_score": hybrid_score,
+            "keyword_matches": keyword_matches
+        })
+
+    # Sort by hybrid score
+    scored_matches.sort(key=lambda x: x["hybrid_score"], reverse=True)
+
+    # 4. Filter by minimum score and take top_k
+    filtered_matches = [
+        sm["match"] for sm in scored_matches
+        if sm["match"].score >= min_score
+    ][:top_k]
+
     if not filtered_matches:
         return SearchResponse(
             answer="No results found matching your criteria.",

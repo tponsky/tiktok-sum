@@ -360,7 +360,8 @@ def process_urls(urls: List[str], topic: str = ""):
             categories_str = video_topic if video_topic else "Uncategorized"
 
             for i, item in enumerate(summaries):
-                merged = item["chunk"] + "\n\nSummary:\n" + item["summary"]
+                # Include title, key_takeaway, and summary for better semantic matching
+                merged = f"Title: {video_title}\nKey Takeaway: {key_takeaway}\n\nContent:\n{item['chunk']}\n\nSummary:\n{item['summary']}"
                 docs.append(merged)
                 metas.append({
                     "source": url,
