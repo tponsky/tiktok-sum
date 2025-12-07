@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video RAG Search</title>
-    <link rel="stylesheet" href="/static/style.css?v=8">
+    <link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 
 <body>
@@ -30,6 +30,7 @@
             <button class="tab-btn" data-tab="ingest">Add Source</button>
             <button class="tab-btn" data-tab="bulk">Bulk Upload</button>
             <button class="tab-btn" data-tab="library">Library</button>
+            <button class="tab-btn" data-tab="shortcut">Shortcut</button>
         </div>
 
         <div id="search-tab" class="tab-content active">
@@ -121,6 +122,48 @@ https://www.instagram.com/reel/xyz"></textarea>
             </div>
         </div>
 
+        <!-- Shortcut/API Key Tab -->
+        <div id="shortcut-tab" class="tab-content hidden">
+            <div class="shortcut-section">
+                <h3>iOS Shortcut Integration</h3>
+                <p>Add videos to your library directly from TikTok, Instagram, or YouTube using iOS Shortcuts.</p>
+
+                <div class="api-key-section">
+                    <h4>Your API Key</h4>
+                    <p class="api-key-description">Use this key in your iOS Shortcut to authenticate. Keep it secret!</p>
+                    <div class="api-key-display">
+                        <input type="text" id="apiKeyDisplay" readonly placeholder="No API key generated yet">
+                        <button id="copyApiKey" class="secondary-btn" disabled>Copy</button>
+                    </div>
+                    <div class="api-key-actions">
+                        <button id="generateApiKey" class="primary-btn">Generate New Key</button>
+                        <button id="revokeApiKey" class="danger-btn" disabled>Revoke Key</button>
+                    </div>
+                    <p id="apiKeyStatus" class="api-key-status"></p>
+                </div>
+
+                <div class="shortcut-instructions">
+                    <h4>How to Set Up</h4>
+                    <ol>
+                        <li>Generate an API key above</li>
+                        <li>Download the iOS Shortcut (coming soon)</li>
+                        <li>Paste your API key when prompted</li>
+                        <li>Share any video to the shortcut from TikTok, Instagram, or YouTube</li>
+                    </ol>
+
+                    <h4>API Endpoint</h4>
+                    <p class="endpoint-info">Your shortcut should POST to:</p>
+                    <code class="endpoint-url">https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</code>
+                    <p class="endpoint-body">With JSON body:</p>
+                    <pre class="endpoint-example">{
+  "url": "https://www.tiktok.com/...",
+  "api_key": "your_api_key_here",
+  "topic": "optional category"
+}</pre>
+                </div>
+            </div>
+        </div>
+
         <!-- Category Management Modal -->
         <div id="categoryModal" class="modal hidden">
             <div class="modal-content">
@@ -180,7 +223,7 @@ https://www.instagram.com/reel/xyz"></textarea>
             </div>
         </div>
     </div>
-    <script src="/static/script.js?v=18"></script>
+    <script src="/static/script.js?v=19"></script>
 </body>
 
 </html>
