@@ -554,13 +554,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const topic = topicFilter.value;
         const author = authorFilterLibrary.value;
+        const token = localStorage.getItem('auth_token');
 
         try {
             const url = new URL('/library', window.location.origin);
             if (topic) url.searchParams.append('topic', topic);
             if (author) url.searchParams.append('author', author);
 
-            const response = await fetch(url);
+            const response = await fetch(url, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
             const data = await response.json();
 
             displayLibrary(data);
