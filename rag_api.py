@@ -37,7 +37,7 @@ BASE_COST_INGEST = 0.006   # Your actual cost per video ingest (avg)
 
 COST_PER_SEARCH = BASE_COST_SEARCH * MARKUP_MULTIPLIER  # $0.005 per search
 COST_PER_INGEST = BASE_COST_INGEST * MARKUP_MULTIPLIER  # $0.03 per video ingest
-INITIAL_BALANCE = 5.00   # $5 trial for new users
+INITIAL_BALANCE = 2.00   # $2 trial for new users
 RELOAD_AMOUNT = 10.00    # $10 reload
 RELOAD_THRESHOLD = 1.00  # Suggest reload when < $1
 
