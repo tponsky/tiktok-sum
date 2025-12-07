@@ -290,12 +290,13 @@ def upsert_to_pinecone(vectors: List[dict]):
 
 # -------- Main Pipeline -------- #
 
-def process_urls(urls: List[str], topic: str = ""):
+def process_urls(urls: List[str], topic: str = "", user_id: int = None):
     """Process TikTok URLs and ingest them into Pinecone.
 
     Args:
         urls: List of TikTok URLs to process
         topic: Optional topic/category for organizing videos
+        user_id: Optional user ID for per-user libraries (None = shared/public)
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         for url in urls:
@@ -377,6 +378,7 @@ def process_urls(urls: List[str], topic: str = ""):
                     "key_takeaway": key_takeaway,
                     "transcript": transcript[:3000],  # Store first 3000 chars of transcript
                     "ingested_at": timestamp,
+                    "user_id": user_id if user_id else 0,  # 0 = shared/public content
                 })
 
             # 6. Embeddings

@@ -15,7 +15,10 @@ from pydantic import BaseModel
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
-DB_FILE = "users.db"
+
+# Database file - use /app/data/ in Docker, or local directory
+DATA_DIR = os.getenv("DATA_DIR", ".")
+DB_FILE = os.path.join(DATA_DIR, "users.db")
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

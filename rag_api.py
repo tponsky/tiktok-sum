@@ -390,8 +390,8 @@ async def search_rag_get(
             detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_SEARCH:.2f}"
         )
 
-    # Perform search
-    result = perform_search(q, top_k, summarize=True, min_score=min_score, author_filter=author_filter, include_web=include_web)
+    # Perform search (filtered by user_id for per-user content)
+    result = perform_search(q, top_k, summarize=True, min_score=min_score, author_filter=author_filter, include_web=include_web, user_id=user_id)
 
     # Deduct cost and log usage
     simple_auth.deduct_from_balance(user_id, COST_PER_SEARCH)
@@ -412,8 +412,8 @@ async def search_rag_post(req: SearchRequest, user: dict = Depends(require_auth)
             detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_SEARCH:.2f}"
         )
 
-    # Perform search
-    result = perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter, req.include_web)
+    # Perform search (filtered by user_id for per-user content)
+    result = perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter, req.include_web, user_id=user_id)
 
     # Deduct cost and log usage
     simple_auth.deduct_from_balance(user_id, COST_PER_SEARCH)
@@ -487,7 +487,7 @@ Response:"""
         return ""
 
 
-def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0.0, author_filter: str = "", include_web: bool = False) -> SearchResponse:
+def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0.0, author_filter: str = "", include_web: bool = False, user_id: int = 0) -> SearchResponse:
     if not index:
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
 
@@ -505,17 +505,32 @@ def perform_search(query: str, top_k: int, summarize: bool, min_score: float = 0
     vector = embed_query(query)
 
     # 3. Query Pinecone with optional metadata filter
+    # Search user's own videos + shared/public (user_id=0) + legacy (no user_id)
     try:
         filter_dict = {}
         if author_filter:
             filter_dict["author"] = {"$eq": author_filter}
 
+        # Get more results then filter by user access
         results = index.query(
             vector=vector,
-            top_k=top_k * 3,  # Get more results for reranking
+            top_k=top_k * 5,  # Get more results for user filtering + reranking
             include_metadata=True,
             filter=filter_dict if filter_dict else None
         )
+
+        # Filter to only show user's own content + shared content
+        accessible_matches = []
+        for m in results.matches:
+            meta = m.metadata or {}
+            video_user_id = meta.get("user_id")
+            # Allow: own content, shared content (0), or legacy content (no user_id)
+            if video_user_id is None or video_user_id == 0 or video_user_id == user_id:
+                accessible_matches.append(m)
+
+        # Replace results.matches with filtered list
+        results.matches = accessible_matches
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pinecone query failed: {str(e)}")
 
@@ -601,7 +616,8 @@ async def ingest_video(req: IngestRequest, background_tasks: BackgroundTasks, us
     simple_auth.deduct_from_balance(user_id, COST_PER_INGEST)
     simple_auth.log_usage(user_id, "ingest", cost_usd=COST_PER_INGEST, details=req.url[:100])
 
-    background_tasks.add_task(process_urls, [req.url], req.topic)
+    # Pass user_id for per-user library
+    background_tasks.add_task(process_urls, [req.url], req.topic, user_id)
     return {"status": "processing_started", "message": f"Started processing {req.url}"}
 
 @app.post("/ingest/bulk")
@@ -626,7 +642,8 @@ async def ingest_bulk(req: BulkIngestRequest, background_tasks: BackgroundTasks,
     simple_auth.deduct_from_balance(user_id, total_cost)
     simple_auth.log_usage(user_id, "bulk_ingest", cost_usd=total_cost, details=f"{len(req.urls)} videos")
 
-    background_tasks.add_task(process_urls, req.urls, req.topic)
+    # Pass user_id for per-user library
+    background_tasks.add_task(process_urls, req.urls, req.topic, user_id)
     return {
         "status": "processing_started",
         "message": f"Started processing {len(req.urls)} videos",
@@ -638,41 +655,67 @@ async def ingest_bulk(req: BulkIngestRequest, background_tasks: BackgroundTasks,
 def get_library(
     topic: str = "",
     author: str = "",
-    limit: int = 100
+    limit: int = 100,
+    user: dict = Depends(get_current_user)
 ):
-    """Get all unique videos in the library, optionally filtered by topic or author."""
+    """Get all unique videos in the library for the current user.
+
+    Shows:
+    - User's own videos (user_id matches)
+    - Shared/public videos (user_id = 0, including pre-existing content)
+    """
     if not index:
         raise HTTPException(status_code=500, detail="Pinecone index not initialized")
 
     try:
-        # Build filter
-        filter_dict = {}
+        # Get user_id (0 if not authenticated)
+        current_user_id = user['user_id'] if user else 0
+
+        # Build filter - show user's videos AND shared videos (user_id=0)
+        filter_dict = {"chunk_index": {"$eq": 0}}
+
         if topic:
             filter_dict["topic"] = {"$eq": topic}
         if author:
             filter_dict["author"] = {"$eq": author}
 
-        # Query with a dummy vector to get all results (we'll use list operation instead)
-        # For Pinecone, we need to use list() to get all vectors
-        # However, list doesn't return metadata, so we use a workaround
-        # We'll query with chunk_index=0 to get unique videos
-        filter_dict["chunk_index"] = {"$eq": 0}
-
         # Create a zero vector for querying (returns all with filter)
         dummy_vector = [0.0] * 1536
 
-        results = index.query(
+        # Query for user's own videos
+        user_filter = {**filter_dict, "user_id": {"$eq": current_user_id}}
+        user_results = index.query(
             vector=dummy_vector,
             top_k=limit,
             include_metadata=True,
-            filter=filter_dict if filter_dict else {"chunk_index": {"$eq": 0}}
+            filter=user_filter
         )
 
-        # Group by source URL
+        # Query for shared/public videos (user_id=0 or missing)
+        # Note: Pre-existing videos won't have user_id field, so we also get those
+        shared_filter = {**filter_dict, "user_id": {"$eq": 0}}
+        shared_results = index.query(
+            vector=dummy_vector,
+            top_k=limit,
+            include_metadata=True,
+            filter=shared_filter
+        )
+
+        # Also query for videos without user_id field (legacy content)
+        # Pinecone doesn't easily support "field doesn't exist", so we get all and filter
+        all_filter = {**filter_dict}
+        all_results = index.query(
+            vector=dummy_vector,
+            top_k=limit * 2,
+            include_metadata=True,
+            filter=all_filter
+        )
+
+        # Combine results
         videos = []
         seen_sources = set()
 
-        for match in results.matches:
+        def add_video(match):
             meta = match.metadata or {}
             source = meta.get("source", "")
             if source and source not in seen_sources:
@@ -691,12 +734,28 @@ def get_library(
                     "summary": meta.get("summary", ""),
                     "key_takeaway": meta.get("key_takeaway", ""),
                     "transcript": meta.get("transcript", ""),
+                    "user_id": meta.get("user_id", 0),
+                    "is_own": meta.get("user_id", 0) == current_user_id and current_user_id != 0,
                 })
+
+        # Add user's own videos first
+        for match in user_results.matches:
+            add_video(match)
+
+        # Add shared videos
+        for match in shared_results.matches:
+            add_video(match)
+
+        # Add legacy videos (those without user_id)
+        for match in all_results.matches:
+            meta = match.metadata or {}
+            if "user_id" not in meta:
+                add_video(match)
 
         # Sort by ingested_at descending (most recent first)
         videos.sort(key=lambda x: x.get("ingested_at", 0), reverse=True)
 
-        return {"videos": videos, "count": len(videos)}
+        return {"videos": videos[:limit], "count": len(videos[:limit])}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library: {str(e)}")
