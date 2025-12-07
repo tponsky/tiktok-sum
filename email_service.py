@@ -12,8 +12,7 @@ if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 
 # Default sender - use your verified domain
-# For testing without domain verification, use: "onboarding@resend.dev"
-FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
+FROM_EMAIL = os.getenv("FROM_EMAIL", "noreply@staycurrentapp.com")
 APP_NAME = os.getenv("APP_NAME", "Video RAG Search")
 
 
