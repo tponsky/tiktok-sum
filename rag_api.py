@@ -598,7 +598,50 @@ class BulkIngestRequest(BaseModel):
     urls: List[str]
     topic: str = ""
 
+class ShortcutIngestRequest(BaseModel):
+    url: str
+    topic: str = ""
+    api_key: str
+
 from tiktok_rag_cloud import process_urls
+
+
+# Shortcut-friendly endpoint that uses API key instead of JWT
+@app.post("/api/shortcut/ingest")
+async def shortcut_ingest_video(req: ShortcutIngestRequest, background_tasks: BackgroundTasks):
+    """Ingest a video using API key (for iOS Shortcuts)."""
+    # Authenticate via API key
+    user = simple_auth.get_user_by_api_key(req.api_key)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if not user.get('is_active', True):
+        raise HTTPException(status_code=401, detail="Account is disabled")
+
+    user_id = user['id']
+    balance = user['balance_usd']
+
+    # Check balance
+    if balance < COST_PER_INGEST:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_INGEST:.2f}"
+        )
+
+    # Deduct cost and log usage
+    simple_auth.deduct_from_balance(user_id, COST_PER_INGEST)
+    simple_auth.log_usage(user_id, "shortcut_ingest", cost_usd=COST_PER_INGEST, details=req.url[:100])
+
+    # Process video
+    background_tasks.add_task(process_urls, [req.url], req.topic, user_id)
+
+    new_balance = simple_auth.get_user_balance(user_id)
+    return {
+        "status": "processing_started",
+        "message": f"Video added to your library",
+        "url": req.url,
+        "balance_remaining": f"${new_balance:.2f}"
+    }
+
 
 @app.post("/ingest")
 async def ingest_video(req: IngestRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
@@ -1589,6 +1632,37 @@ async def get_user_usage_endpoint(user: dict = Depends(require_auth)):
         total_spent=round(total_spent, 2),
         needs_reload=needs_reload
     )
+
+
+# ============================================================================
+# API Key Management (for Shortcuts integration)
+# ============================================================================
+
+@app.get("/api/user/api-key")
+async def get_api_key(user: dict = Depends(require_auth)):
+    """Get user's current API key."""
+    user_id = user['user_id']
+    api_key = simple_auth.get_user_api_key(user_id)
+    return {"api_key": api_key}
+
+
+@app.post("/api/user/api-key/generate")
+async def generate_api_key(user: dict = Depends(require_auth)):
+    """Generate a new API key (replaces existing one)."""
+    user_id = user['user_id']
+    api_key = simple_auth.generate_api_key(user_id)
+    if api_key:
+        return {"api_key": api_key, "message": "API key generated successfully"}
+    raise HTTPException(status_code=500, detail="Failed to generate API key")
+
+
+@app.delete("/api/user/api-key")
+async def revoke_api_key(user: dict = Depends(require_auth)):
+    """Revoke user's API key."""
+    user_id = user['user_id']
+    if simple_auth.revoke_api_key(user_id):
+        return {"message": "API key revoked successfully"}
+    raise HTTPException(status_code=500, detail="Failed to revoke API key")
 
 
 @app.post("/api/stripe/create-checkout-session", response_model=CheckoutSessionResponse)

@@ -1027,4 +1027,156 @@ document.addEventListener('DOMContentLoaded', () => {
         loadFilters();
         loadLibrary();
     });
+
+    // ============================================================================
+    // API Key Management (Shortcut Tab)
+    // ============================================================================
+    const apiKeyDisplay = document.getElementById('apiKeyDisplay');
+    const copyApiKeyBtn = document.getElementById('copyApiKey');
+    const generateApiKeyBtn = document.getElementById('generateApiKey');
+    const revokeApiKeyBtn = document.getElementById('revokeApiKey');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
+
+    // Load API key when switching to shortcut tab
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.getAttribute('data-tab') === 'shortcut') {
+                loadApiKey();
+            }
+        });
+    });
+
+    async function loadApiKey() {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+
+        try {
+            const response = await fetch('/api/user/api-key', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.api_key) {
+                    apiKeyDisplay.value = data.api_key;
+                    copyApiKeyBtn.disabled = false;
+                    revokeApiKeyBtn.disabled = false;
+                    apiKeyStatus.textContent = 'API key is active';
+                    apiKeyStatus.className = 'api-key-status success';
+                } else {
+                    apiKeyDisplay.value = '';
+                    apiKeyDisplay.placeholder = 'No API key generated yet';
+                    copyApiKeyBtn.disabled = true;
+                    revokeApiKeyBtn.disabled = true;
+                    apiKeyStatus.textContent = '';
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load API key:', error);
+            apiKeyStatus.textContent = 'Failed to load API key';
+            apiKeyStatus.className = 'api-key-status error';
+        }
+    }
+
+    generateApiKeyBtn.addEventListener('click', async () => {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+
+        // Confirm if there's an existing key
+        if (apiKeyDisplay.value) {
+            if (!confirm('This will replace your existing API key. Any shortcuts using the old key will stop working. Continue?')) {
+                return;
+            }
+        }
+
+        generateApiKeyBtn.disabled = true;
+        generateApiKeyBtn.textContent = 'Generating...';
+
+        try {
+            const response = await fetch('/api/user/api-key/generate', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                apiKeyDisplay.value = data.api_key;
+                copyApiKeyBtn.disabled = false;
+                revokeApiKeyBtn.disabled = false;
+                apiKeyStatus.textContent = 'New API key generated!';
+                apiKeyStatus.className = 'api-key-status success';
+            } else {
+                const data = await response.json();
+                apiKeyStatus.textContent = data.detail || 'Failed to generate API key';
+                apiKeyStatus.className = 'api-key-status error';
+            }
+        } catch (error) {
+            console.error('Failed to generate API key:', error);
+            apiKeyStatus.textContent = 'Failed to generate API key';
+            apiKeyStatus.className = 'api-key-status error';
+        } finally {
+            generateApiKeyBtn.disabled = false;
+            generateApiKeyBtn.textContent = 'Generate New Key';
+        }
+    });
+
+    copyApiKeyBtn.addEventListener('click', async () => {
+        const key = apiKeyDisplay.value;
+        if (!key) return;
+
+        try {
+            await navigator.clipboard.writeText(key);
+            copyApiKeyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyApiKeyBtn.textContent = 'Copy';
+            }, 2000);
+        } catch (error) {
+            // Fallback for older browsers
+            apiKeyDisplay.select();
+            document.execCommand('copy');
+            copyApiKeyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyApiKeyBtn.textContent = 'Copy';
+            }, 2000);
+        }
+    });
+
+    revokeApiKeyBtn.addEventListener('click', async () => {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+
+        if (!confirm('Are you sure you want to revoke your API key? Any shortcuts using this key will stop working.')) {
+            return;
+        }
+
+        revokeApiKeyBtn.disabled = true;
+        revokeApiKeyBtn.textContent = 'Revoking...';
+
+        try {
+            const response = await fetch('/api/user/api-key', {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                apiKeyDisplay.value = '';
+                apiKeyDisplay.placeholder = 'No API key generated yet';
+                copyApiKeyBtn.disabled = true;
+                revokeApiKeyBtn.disabled = true;
+                apiKeyStatus.textContent = 'API key revoked';
+                apiKeyStatus.className = 'api-key-status';
+            } else {
+                const data = await response.json();
+                apiKeyStatus.textContent = data.detail || 'Failed to revoke API key';
+                apiKeyStatus.className = 'api-key-status error';
+            }
+        } catch (error) {
+            console.error('Failed to revoke API key:', error);
+            apiKeyStatus.textContent = 'Failed to revoke API key';
+            apiKeyStatus.className = 'api-key-status error';
+        } finally {
+            revokeApiKeyBtn.disabled = false;
+            revokeApiKeyBtn.textContent = 'Revoke Key';
+        }
+    });
 });

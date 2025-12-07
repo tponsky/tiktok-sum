@@ -1081,6 +1081,169 @@ textarea:focus {
     border-color: #ccc;
 }
 
+/* Shortcut/API Key Section */
+.shortcut-section {
+    background-color: var(--card-bg);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.shortcut-section h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.shortcut-section > p {
+    color: #666;
+    margin-bottom: 25px;
+}
+
+.api-key-section {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+}
+
+.api-key-section h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-color);
+}
+
+.api-key-description {
+    font-size: 0.9em;
+    color: #666;
+    margin: 0 0 15px 0;
+}
+
+.api-key-display {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.api-key-display input {
+    flex: 1;
+    font-family: monospace;
+    font-size: 14px;
+    padding: 10px 15px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    background: white;
+}
+
+.api-key-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.primary-btn {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.primary-btn:hover {
+    opacity: 0.9;
+}
+
+.danger-btn {
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.danger-btn:hover {
+    opacity: 0.9;
+}
+
+.danger-btn:disabled,
+.primary-btn:disabled,
+.secondary-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.api-key-status {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 10px;
+}
+
+.api-key-status.success {
+    color: #10b981;
+}
+
+.api-key-status.error {
+    color: #ef4444;
+}
+
+.shortcut-instructions {
+    margin-top: 25px;
+}
+
+.shortcut-instructions h4 {
+    margin: 20px 0 10px 0;
+    color: var(--text-color);
+}
+
+.shortcut-instructions ol {
+    margin: 0;
+    padding-left: 20px;
+    color: #555;
+}
+
+.shortcut-instructions li {
+    margin: 8px 0;
+}
+
+.endpoint-info {
+    font-size: 0.9em;
+    color: #666;
+    margin: 5px 0;
+}
+
+.endpoint-url {
+    display: block;
+    background: #1a1a2e;
+    color: #10b981;
+    padding: 12px 15px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin: 10px 0;
+    word-break: break-all;
+}
+
+.endpoint-body {
+    font-size: 0.9em;
+    color: #666;
+    margin: 15px 0 5px 0;
+}
+
+.endpoint-example {
+    display: block;
+    background: #1a1a2e;
+    color: #e2e8f0;
+    padding: 15px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin: 10px 0;
+    white-space: pre;
+    overflow-x: auto;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .tabs {

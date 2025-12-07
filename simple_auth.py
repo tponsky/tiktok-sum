@@ -89,6 +89,14 @@ def get_db_connection():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON usage(timestamp);")
             conn.commit()
 
+        # Add api_key column to users if it doesn't exist
+        cur.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cur.fetchall()]
+        if 'api_key' not in columns:
+            cur.execute("ALTER TABLE users ADD COLUMN api_key TEXT UNIQUE")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key);")
+            conn.commit()
+
         # Create password_reset_tokens table
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='password_reset_tokens'")
         if not cur.fetchone():
@@ -469,6 +477,83 @@ def update_password(user_id: int, new_password: str) -> bool:
     except Exception as e:
         conn.rollback()
         print(f"Error updating password: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# API Keys (for Shortcuts integration)
+# ============================================================================
+
+def generate_api_key(user_id: int) -> Optional[str]:
+    """Generate a new API key for the user."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        # Generate a unique API key with prefix for easy identification
+        api_key = f"vrag_{secrets.token_urlsafe(32)}"
+        cur.execute(
+            "UPDATE users SET api_key = ? WHERE id = ?",
+            (api_key, user_id)
+        )
+        conn.commit()
+        return api_key
+    except Exception as e:
+        conn.rollback()
+        print(f"Error generating API key: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def get_user_api_key(user_id: int) -> Optional[str]:
+    """Get user's current API key."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT api_key FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        return row['api_key'] if row else None
+    finally:
+        conn.close()
+
+
+def get_user_by_api_key(api_key: str) -> Optional[dict]:
+    """Get user by API key for authentication."""
+    if not api_key:
+        return None
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, email, balance_usd, is_active FROM users WHERE api_key = ?",
+            (api_key,)
+        )
+        row = cur.fetchone()
+        if row:
+            return {
+                "id": row['id'],
+                "email": row['email'],
+                "balance_usd": row['balance_usd'],
+                "is_active": row['is_active']
+            }
+        return None
+    finally:
+        conn.close()
+
+
+def revoke_api_key(user_id: int) -> bool:
+    """Revoke user's API key."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET api_key = NULL WHERE id = ?", (user_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Error revoking API key: {e}")
         return False
     finally:
         conn.close()
