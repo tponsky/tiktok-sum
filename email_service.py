@@ -167,7 +167,7 @@ def send_welcome_email(to: str, app_name: str = None) -> bool:
             <h2>Welcome to {app}!</h2>
             <p>Thanks for signing up. Your account has been created successfully.</p>
             <div class="highlight">
-                <strong>You have $5.00 in free credits</strong> to get started!
+                <strong>You have $2.00 in free credits</strong> to get started!
             </div>
             <p>Start exploring by searching your video library or adding new videos.</p>
             <div class="footer">

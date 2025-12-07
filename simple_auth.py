@@ -146,10 +146,10 @@ def create_user(email: str, password: str):
         cur = conn.cursor()
         hashed_password = get_password_hash(password)
 
-        # Give new users $5.00 trial balance
+        # Give new users $2.00 trial balance
         cur.execute(
             "INSERT INTO users (email, hashed_password, balance_usd) VALUES (?, ?, ?)",
-            (email, hashed_password, 5.00)
+            (email, hashed_password, 2.00)
         )
         user_id = cur.lastrowid
         conn.commit()
