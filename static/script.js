@@ -1,5 +1,140 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // ============================================================================
+    // Authentication
+    // ============================================================================
+    const userHeader = document.getElementById('userHeader');
+    const userEmail = document.getElementById('userEmail');
+    const userBalance = document.getElementById('userBalance');
+    const addFundsBtn = document.getElementById('addFundsBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    // Check authentication on page load
+    checkAuth();
+
+    async function checkAuth() {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            // Redirect to login
+            window.location.href = '/login.html';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auth/me', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) {
+                // Token invalid, clear and redirect
+                localStorage.removeItem('auth_token');
+                window.location.href = '/login.html';
+                return;
+            }
+
+            const user = await response.json();
+            showUserHeader(user);
+            loadUsageInfo();
+        } catch (error) {
+            console.error('Auth check failed:', error);
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login.html';
+        }
+    }
+
+    function showUserHeader(user) {
+        userEmail.textContent = user.email;
+        userBalance.textContent = `$${user.balance_usd.toFixed(2)}`;
+        userHeader.classList.remove('hidden');
+
+        // Show add funds button if balance is low
+        if (user.balance_usd < 1.00) {
+            addFundsBtn.classList.remove('hidden');
+            userBalance.classList.add('low-balance');
+        }
+    }
+
+    async function loadUsageInfo() {
+        const token = localStorage.getItem('auth_token');
+        try {
+            const response = await fetch('/api/user/usage', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const usage = await response.json();
+                userBalance.textContent = `$${usage.balance_usd.toFixed(2)}`;
+                if (usage.needs_reload) {
+                    addFundsBtn.classList.remove('hidden');
+                    userBalance.classList.add('low-balance');
+                } else {
+                    addFundsBtn.classList.add('hidden');
+                    userBalance.classList.remove('low-balance');
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load usage info:', error);
+        }
+    }
+
+    // Add funds button
+    if (addFundsBtn) {
+        addFundsBtn.addEventListener('click', async () => {
+            const token = localStorage.getItem('auth_token');
+            try {
+                addFundsBtn.disabled = true;
+                addFundsBtn.textContent = 'Loading...';
+
+                const response = await fetch('/api/stripe/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    window.location.href = data.session_url;
+                } else {
+                    alert('Failed to create checkout session');
+                    addFundsBtn.disabled = false;
+                    addFundsBtn.textContent = 'Add Funds';
+                }
+            } catch (error) {
+                console.error('Checkout error:', error);
+                addFundsBtn.disabled = false;
+                addFundsBtn.textContent = 'Add Funds';
+            }
+        });
+    }
+
+    // Logout button
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login.html';
+        });
+    }
+
+    // Check for payment status in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('payment') === 'success') {
+        alert('Payment successful! Your balance has been updated.');
+        window.history.replaceState({}, document.title, '/');
+        loadUsageInfo();
+    } else if (urlParams.get('payment') === 'cancelled') {
+        alert('Payment was cancelled.');
+        window.history.replaceState({}, document.title, '/');
+    }
+
+    // Helper function to get auth headers
+    function getAuthHeaders() {
+        const token = localStorage.getItem('auth_token');
+        return {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        };
+    }
+
+    // ============================================================================
     // Search tab elements
+    // ============================================================================
     const searchInput = document.getElementById('searchInput');
     const searchBtn = document.getElementById('searchBtn');
     const loadingDiv = document.getElementById('loading');
@@ -100,7 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/ingest', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ url, topic })
             });
 
@@ -111,6 +246,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 ingestStatus.className = 'status-msg success';
                 ingestInput.value = '';
                 ingestTopic.value = '';
+                loadUsageInfo(); // Refresh balance
+            } else if (response.status === 402) {
+                ingestStatus.textContent = `Insufficient balance. Please add funds to continue.`;
+                ingestStatus.className = 'status-msg error';
+                addFundsBtn.classList.remove('hidden');
             } else {
                 throw new Error(data.detail || 'Failed to start ingestion');
             }
@@ -164,18 +304,23 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/ingest/bulk', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ urls, topic })
             });
 
             const data = await response.json();
 
             if (response.ok) {
-                bulkStatus.textContent = `Success! ${data.count} videos queued for processing. They will appear in the library as they complete.`;
+                bulkStatus.textContent = `Success! ${data.count} videos queued for processing (cost: $${data.cost?.toFixed(2) || '0.00'}). They will appear in the library as they complete.`;
                 bulkStatus.className = 'status-msg success';
                 bulkInput.value = '';
                 bulkTopic.value = '';
                 urlCount.textContent = '0 URLs detected';
+                loadUsageInfo(); // Refresh balance
+            } else if (response.status === 402) {
+                bulkStatus.textContent = `Insufficient balance: ${data.detail}`;
+                bulkStatus.className = 'status-msg error';
+                addFundsBtn.classList.remove('hidden');
             } else {
                 throw new Error(data.detail || 'Failed to start bulk ingestion');
             }
@@ -241,7 +386,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 url.searchParams.append('include_web', 'true');
             }
 
-            const response = await fetch(url);
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.status === 402) {
+                const data = await response.json();
+                answerDiv.innerHTML = `<div class="error-message">Insufficient balance. Please add funds to continue searching.<br><br>${data.detail}</div>`;
+                answerDiv.classList.remove('hidden');
+                addFundsBtn.classList.remove('hidden');
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error(`Search failed: ${response.statusText}`);
@@ -249,6 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = await response.json();
             displayResults(data);
+            loadUsageInfo(); // Refresh balance after search
         } catch (error) {
             console.error('Error:', error);
             answerDiv.innerHTML = `Error: ${error.message}`;

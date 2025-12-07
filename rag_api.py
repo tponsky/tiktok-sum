@@ -1,12 +1,16 @@
 import os
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from datetime import datetime, timedelta
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from openai import OpenAI
+import stripe
+import simple_auth
 
 # --- Load environment variables ---
 load_dotenv()
@@ -14,6 +18,28 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 INDEX_NAME = "tiktok-rag"
+
+# Stripe configuration
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+APP_URL = os.getenv("APP_URL", "https://tiktoksum.staycurrentapp.com")
+
+# Pricing constants
+# -----------------------------------------------
+# Your actual API costs (approx):
+#   - Search: ~$0.0005 (embedding ~$0.00002 + GPT-4o-mini ~$0.0003-0.0005)
+#   - Ingest: ~$0.005-0.01 (transcript + summary + embeddings)
+#
+# With 5x markup (adjust MARKUP_MULTIPLIER to change):
+MARKUP_MULTIPLIER = 5.0
+BASE_COST_SEARCH = 0.001   # Your actual cost per search
+BASE_COST_INGEST = 0.006   # Your actual cost per video ingest (avg)
+
+COST_PER_SEARCH = BASE_COST_SEARCH * MARKUP_MULTIPLIER  # $0.005 per search
+COST_PER_INGEST = BASE_COST_INGEST * MARKUP_MULTIPLIER  # $0.03 per video ingest
+INITIAL_BALANCE = 5.00   # $5 trial for new users
+RELOAD_AMOUNT = 10.00    # $10 reload
+RELOAD_THRESHOLD = 1.00  # Suggest reload when < $1
 
 if not OPENAI_API_KEY:
     print("Warning: OPENAI_API_KEY not found in environment variables.")
@@ -40,6 +66,51 @@ app = FastAPI(title="TikTok RAG API", version="1.0")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Security
+security = HTTPBearer(auto_error=False)
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Optional[dict]:
+    """Get current authenticated user from JWT token. Returns None if not authenticated."""
+    if not credentials:
+        return None
+
+    token = credentials.credentials
+    token_data = simple_auth.verify_token(token)
+    if not token_data or not token_data.email:
+        return None
+
+    user = simple_auth.get_user_by_email(token_data.email)
+    if not user:
+        return None
+
+    return {
+        "user_id": user['id'],
+        "email": user['email'],
+        "balance": user['balance_usd']
+    }
+
+
+async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Require authentication - raises 401 if not authenticated."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    token = credentials.credentials
+    token_data = simple_auth.verify_token(token)
+    if not token_data or not token_data.email:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = simple_auth.get_user_by_email(token_data.email)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return {
+        "user_id": user['id'],
+        "email": user['email'],
+        "balance": user['balance_usd']
+    }
 
 
 # ----------------- Models --------------------------
@@ -301,20 +372,54 @@ async def serve_frontend():
     return FileResponse("static/search.html")
 
 @app.get("/search", response_model=SearchResponse)
-def search_rag_get(
+async def search_rag_get(
     q: str = Query(..., description="Search query"),
     top_k: int = 10,
     min_score: float = 0.0,
     author_filter: str = "",
-    include_web: bool = False
+    include_web: bool = False,
+    user: dict = Depends(require_auth)
 ):
-    """GET endpoint for search."""
-    return perform_search(q, top_k, summarize=True, min_score=min_score, author_filter=author_filter, include_web=include_web)
+    """GET endpoint for search (requires authentication)."""
+    # Check balance
+    user_id = user['user_id']
+    balance = simple_auth.get_user_balance(user_id)
+    if balance < COST_PER_SEARCH:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_SEARCH:.2f}"
+        )
+
+    # Perform search
+    result = perform_search(q, top_k, summarize=True, min_score=min_score, author_filter=author_filter, include_web=include_web)
+
+    # Deduct cost and log usage
+    simple_auth.deduct_from_balance(user_id, COST_PER_SEARCH)
+    simple_auth.log_usage(user_id, "search", cost_usd=COST_PER_SEARCH, details=q[:100])
+
+    return result
+
 
 @app.post("/search", response_model=SearchResponse)
-def search_rag_post(req: SearchRequest):
-    """POST endpoint for search."""
-    return perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter, req.include_web)
+async def search_rag_post(req: SearchRequest, user: dict = Depends(require_auth)):
+    """POST endpoint for search (requires authentication)."""
+    # Check balance
+    user_id = user['user_id']
+    balance = simple_auth.get_user_balance(user_id)
+    if balance < COST_PER_SEARCH:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_SEARCH:.2f}"
+        )
+
+    # Perform search
+    result = perform_search(req.query, req.top_k, req.summarize, req.min_score, req.author_filter, req.include_web)
+
+    # Deduct cost and log usage
+    simple_auth.deduct_from_balance(user_id, COST_PER_SEARCH)
+    simple_auth.log_usage(user_id, "search", cost_usd=COST_PER_SEARCH, details=req.query[:100])
+
+    return result
 
 def expand_query_keywords(query: str) -> set:
     """Expand query with synonyms and related terms using GPT."""
@@ -478,28 +583,55 @@ class BulkIngestRequest(BaseModel):
     urls: List[str]
     topic: str = ""
 
-from fastapi import BackgroundTasks
 from tiktok_rag_cloud import process_urls
 
 @app.post("/ingest")
-def ingest_video(req: IngestRequest, background_tasks: BackgroundTasks):
-    """Start background ingestion of a TikTok video."""
+async def ingest_video(req: IngestRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
+    """Start background ingestion of a video (requires authentication)."""
+    # Check balance
+    user_id = user['user_id']
+    balance = simple_auth.get_user_balance(user_id)
+    if balance < COST_PER_INGEST:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_INGEST:.2f}"
+        )
+
+    # Deduct cost and log usage upfront
+    simple_auth.deduct_from_balance(user_id, COST_PER_INGEST)
+    simple_auth.log_usage(user_id, "ingest", cost_usd=COST_PER_INGEST, details=req.url[:100])
+
     background_tasks.add_task(process_urls, [req.url], req.topic)
     return {"status": "processing_started", "message": f"Started processing {req.url}"}
 
 @app.post("/ingest/bulk")
-def ingest_bulk(req: BulkIngestRequest, background_tasks: BackgroundTasks):
-    """Start background ingestion of multiple TikTok videos."""
+async def ingest_bulk(req: BulkIngestRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
+    """Start background ingestion of multiple videos (requires authentication)."""
     if not req.urls:
         raise HTTPException(status_code=400, detail="No URLs provided")
     if len(req.urls) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 URLs per batch")
 
+    # Check balance for all videos
+    user_id = user['user_id']
+    total_cost = COST_PER_INGEST * len(req.urls)
+    balance = simple_auth.get_user_balance(user_id)
+    if balance < total_cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${total_cost:.2f} for {len(req.urls)} videos"
+        )
+
+    # Deduct cost and log usage upfront
+    simple_auth.deduct_from_balance(user_id, total_cost)
+    simple_auth.log_usage(user_id, "bulk_ingest", cost_usd=total_cost, details=f"{len(req.urls)} videos")
+
     background_tasks.add_task(process_urls, req.urls, req.topic)
     return {
         "status": "processing_started",
         "message": f"Started processing {len(req.urls)} videos",
-        "count": len(req.urls)
+        "count": len(req.urls),
+        "cost": total_cost
     }
 
 @app.get("/library")
@@ -1226,3 +1358,180 @@ def reprocess_videos_task(video_ids: List[str]):
 
         except Exception as e:
             print(f"Error reprocessing {video_id}: {e}")
+
+
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@app.get("/login.html", include_in_schema=False)
+async def login_page():
+    return FileResponse("static/login.html")
+
+@app.get("/signup.html", include_in_schema=False)
+async def signup_page():
+    return FileResponse("static/signup.html")
+
+
+@app.post("/api/auth/signup", response_model=simple_auth.Token)
+async def signup(user: simple_auth.UserCreate):
+    """Create a new user account with $5 trial balance."""
+    try:
+        # Check if user already exists
+        existing_user = simple_auth.get_user_by_email(user.email)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        # Create new user
+        new_user = simple_auth.create_user(user.email, user.password)
+        if not new_user:
+            raise HTTPException(status_code=500, detail="Failed to create user")
+
+        # Generate access token
+        access_token_expires = timedelta(minutes=simple_auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = simple_auth.create_access_token(
+            data={"sub": user.email}, expires_delta=access_token_expires
+        )
+
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Signup failed: {str(e)}")
+
+
+@app.post("/api/auth/login", response_model=simple_auth.Token)
+async def login(user: simple_auth.UserLogin):
+    """Authenticate and get access token."""
+    authenticated_user = simple_auth.authenticate_user(user.email, user.password)
+    if not authenticated_user:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    # Generate access token
+    access_token_expires = timedelta(minutes=simple_auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = simple_auth.create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/api/auth/me")
+async def get_me(user: dict = Depends(require_auth)):
+    """Get current user information."""
+    return {
+        "user_id": user['user_id'],
+        "email": user['email'],
+        "balance_usd": round(user['balance'], 2)
+    }
+
+
+# ============================================================================
+# Stripe Billing Endpoints
+# ============================================================================
+
+class UsageResponse(BaseModel):
+    balance_usd: float
+    total_spent: float
+    needs_reload: bool
+
+
+class CheckoutSessionResponse(BaseModel):
+    session_url: str
+
+
+@app.get("/api/user/usage", response_model=UsageResponse)
+async def get_user_usage_endpoint(user: dict = Depends(require_auth)):
+    """Get user's current balance and usage."""
+    user_id = user['user_id']
+    balance = simple_auth.get_user_balance(user_id)
+    total_spent = simple_auth.get_user_total_cost(user_id)
+    needs_reload = balance < RELOAD_THRESHOLD
+
+    return UsageResponse(
+        balance_usd=round(balance, 2),
+        total_spent=round(total_spent, 2),
+        needs_reload=needs_reload
+    )
+
+
+@app.post("/api/stripe/create-checkout-session", response_model=CheckoutSessionResponse)
+async def create_checkout_session(user: dict = Depends(require_auth)):
+    """Create a Stripe checkout session for adding funds."""
+    if not stripe.api_key:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    user_id = user['user_id']
+    user_email = user['email']
+
+    # Get or create Stripe customer
+    customer_id = simple_auth.get_stripe_customer_id(user_id)
+
+    if not customer_id:
+        # Create new Stripe customer
+        customer = stripe.Customer.create(
+            email=user_email,
+            metadata={"user_id": str(user_id)}
+        )
+        customer_id = customer.id
+        simple_auth.set_stripe_customer_id(user_id, customer_id)
+
+    # Create checkout session for $10
+    try:
+        session = stripe.checkout.Session.create(
+            customer=customer_id,
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": "Video RAG Search Credits",
+                        "description": f"Add ${RELOAD_AMOUNT:.2f} to your account balance"
+                    },
+                    "unit_amount": int(RELOAD_AMOUNT * 100),  # Convert to cents
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{APP_URL}/?payment=success",
+            cancel_url=f"{APP_URL}/?payment=cancelled",
+            metadata={
+                "user_id": str(user_id),
+                "amount_usd": str(RELOAD_AMOUNT)
+            }
+        )
+
+        return CheckoutSessionResponse(session_url=session.url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create checkout session: {str(e)}")
+
+
+@app.post("/api/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhook events."""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Webhook secret not configured")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Handle checkout.session.completed event
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        user_id = int(session["metadata"]["user_id"])
+        amount_usd = float(session["metadata"]["amount_usd"])
+
+        # Add funds to user's balance
+        simple_auth.add_to_balance(user_id, amount_usd)
+        print(f"Added ${amount_usd} to user {user_id}'s balance")
+
+    return {"status": "success"}
