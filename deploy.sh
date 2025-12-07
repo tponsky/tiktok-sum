@@ -102,6 +102,7 @@ docker run -d \
   -e STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" \
   -e STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET" \
   -e APP_URL="$APP_URL" \
+  -e RESEND_API_KEY="$RESEND_API_KEY" \
   -e DATA_DIR="/app/data" \
   -v $(pwd)/data:/app/data \
   --restart unless-stopped \
