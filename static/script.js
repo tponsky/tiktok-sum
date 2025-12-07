@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const userHeader = document.getElementById('userHeader');
     const userEmail = document.getElementById('userEmail');
     const userBalance = document.getElementById('userBalance');
+    const balanceHint = document.getElementById('balanceHint');
     const addFundsBtn = document.getElementById('addFundsBtn');
     const logoutBtn = document.getElementById('logoutBtn');
 
@@ -62,6 +63,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const usage = await response.json();
                 userBalance.textContent = `$${usage.balance_usd.toFixed(2)}`;
+
+                // Show hint for approximate usage
+                const videos = Math.floor(usage.balance_usd / 0.03);
+                const searches = Math.floor(usage.balance_usd / 0.005);
+                if (balanceHint) {
+                    balanceHint.textContent = `(~${videos} videos, ${searches} searches)`;
+                }
+
                 if (usage.needs_reload) {
                     addFundsBtn.classList.remove('hidden');
                     userBalance.classList.add('low-balance');

@@ -57,6 +57,12 @@ body {
     animation: pulse 2s infinite;
 }
 
+.balance-hint {
+    font-size: 11px;
+    color: #94a3b8;
+    font-style: italic;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
