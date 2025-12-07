@@ -1601,7 +1601,7 @@ async def stripe_webhook(request: Request):
 # ============================================================================
 
 # Your admin email - only this user can run admin commands
-ADMIN_EMAIL = "todd@staycurrentapp.com"
+ADMIN_EMAIL = "tponsky@gmail.com"
 
 
 @app.post("/api/admin/claim-legacy-videos")
