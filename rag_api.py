@@ -1486,6 +1486,84 @@ async def get_me(user: dict = Depends(require_auth)):
 
 
 # ============================================================================
+# Password Reset Endpoints
+# ============================================================================
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+class VerifyResetTokenRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Request a password reset. Generates a token and returns it.
+    In production, this would send an email instead of returning the token.
+    """
+    token = simple_auth.create_password_reset_token(req.email)
+
+    # For security, always return success even if email doesn't exist
+    # This prevents email enumeration attacks
+    if token:
+        # In production, send email here instead of returning token
+        # For now, we'll return a reset URL that can be used
+        reset_url = f"{APP_URL}/reset-password.html?token={token}"
+        print(f"Password reset requested for {req.email}. Reset URL: {reset_url}")
+
+        # TODO: Send email with reset link
+        # For now, return the URL directly (remove in production with real email)
+        return {
+            "message": "If an account exists with this email, a password reset link has been sent.",
+            "reset_url": reset_url  # Remove this in production
+        }
+
+    return {"message": "If an account exists with this email, a password reset link has been sent."}
+
+
+@app.post("/api/auth/verify-reset-token")
+async def verify_reset_token(req: VerifyResetTokenRequest):
+    """Verify that a password reset token is valid."""
+    token_data = simple_auth.verify_reset_token(req.token)
+
+    if token_data:
+        return {
+            "valid": True,
+            "email": token_data['email']
+        }
+
+    return {"valid": False, "email": None}
+
+
+@app.post("/api/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    """Reset password using a valid token."""
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    success = simple_auth.reset_password(req.token, req.new_password)
+
+    if success:
+        return {"message": "Password has been reset successfully. You can now log in."}
+
+    raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+
+@app.get("/forgot-password.html", include_in_schema=False)
+async def forgot_password_page():
+    return FileResponse("static/forgot-password.html")
+
+
+@app.get("/reset-password.html", include_in_schema=False)
+async def reset_password_page():
+    return FileResponse("static/reset-password.html")
+
+
+# ============================================================================
 # Stripe Billing Endpoints
 # ============================================================================
 

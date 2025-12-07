@@ -4,6 +4,7 @@ For TikTok Video RAG Search
 """
 import os
 import sqlite3
+import secrets
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
@@ -86,6 +87,24 @@ def get_db_connection():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_usage_user_id ON usage(user_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON usage(timestamp);")
+            conn.commit()
+
+        # Create password_reset_tokens table
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='password_reset_tokens'")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    used BOOLEAN DEFAULT 0,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_reset_token ON password_reset_tokens(token);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_reset_user_id ON password_reset_tokens(user_id);")
             conn.commit()
     except Exception as e:
         print(f"Database migration error: {e}")
@@ -326,5 +345,130 @@ def get_stripe_customer_id(user_id: int) -> Optional[str]:
         cur.execute("SELECT stripe_customer_id FROM users WHERE id = ?", (user_id,))
         row = cur.fetchone()
         return row['stripe_customer_id'] if row else None
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Password Reset
+# ============================================================================
+
+RESET_TOKEN_EXPIRE_HOURS = 1  # Token expires in 1 hour
+
+
+def create_password_reset_token(email: str) -> Optional[str]:
+    """Create a password reset token for the user."""
+    user = get_user_by_email(email)
+    if not user:
+        return None
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        # Invalidate any existing tokens for this user
+        cur.execute(
+            "UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0",
+            (user['id'],)
+        )
+
+        # Create new token
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=RESET_TOKEN_EXPIRE_HOURS)
+
+        cur.execute(
+            """INSERT INTO password_reset_tokens (user_id, token, expires_at)
+               VALUES (?, ?, ?)""",
+            (user['id'], token, expires_at)
+        )
+        conn.commit()
+        return token
+    except Exception as e:
+        conn.rollback()
+        print(f"Error creating reset token: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def verify_reset_token(token: str) -> Optional[dict]:
+    """Verify a password reset token and return user info if valid."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT prt.*, u.email FROM password_reset_tokens prt
+               JOIN users u ON prt.user_id = u.id
+               WHERE prt.token = ? AND prt.used = 0""",
+            (token,)
+        )
+        row = cur.fetchone()
+
+        if not row:
+            return None
+
+        # Check if expired
+        expires_at = datetime.fromisoformat(row['expires_at'])
+        if datetime.utcnow() > expires_at:
+            return None
+
+        return {
+            "user_id": row['user_id'],
+            "email": row['email'],
+            "token": token
+        }
+    finally:
+        conn.close()
+
+
+def reset_password(token: str, new_password: str) -> bool:
+    """Reset user's password using a valid token."""
+    token_data = verify_reset_token(token)
+    if not token_data:
+        return False
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        # Update password
+        hashed_password = get_password_hash(new_password)
+        cur.execute(
+            "UPDATE users SET hashed_password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (hashed_password, token_data['user_id'])
+        )
+
+        # Mark token as used
+        cur.execute(
+            "UPDATE password_reset_tokens SET used = 1 WHERE token = ?",
+            (token,)
+        )
+
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Error resetting password: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def update_password(user_id: int, new_password: str) -> bool:
+    """Update user's password directly (for authenticated password change)."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        hashed_password = get_password_hash(new_password)
+        cur.execute(
+            "UPDATE users SET hashed_password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (hashed_password, user_id)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Error updating password: {e}")
+        return False
     finally:
         conn.close()
