@@ -1502,25 +1502,24 @@ class VerifyResetTokenRequest(BaseModel):
 
 @app.post("/api/auth/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest):
-    """Request a password reset. Generates a token and returns it.
-    In production, this would send an email instead of returning the token.
-    """
+    """Request a password reset. Sends reset link via email."""
+    import email_service
+
     token = simple_auth.create_password_reset_token(req.email)
 
     # For security, always return success even if email doesn't exist
     # This prevents email enumeration attacks
     if token:
-        # In production, send email here instead of returning token
-        # For now, we'll return a reset URL that can be used
         reset_url = f"{APP_URL}/reset-password.html?token={token}"
-        print(f"Password reset requested for {req.email}. Reset URL: {reset_url}")
+        print(f"Password reset requested for {req.email}")
 
-        # TODO: Send email with reset link
-        # For now, return the URL directly (remove in production with real email)
-        return {
-            "message": "If an account exists with this email, a password reset link has been sent.",
-            "reset_url": reset_url  # Remove this in production
-        }
+        # Send email with reset link
+        if email_service.is_configured():
+            email_sent = email_service.send_password_reset_email(req.email, reset_url)
+            if not email_sent:
+                print(f"Warning: Failed to send reset email to {req.email}")
+        else:
+            print(f"Warning: Email service not configured. Reset URL: {reset_url}")
 
     return {"message": "If an account exists with this email, a password reset link has been sent."}
 
