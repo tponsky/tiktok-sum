@@ -653,38 +653,54 @@ def update_video_metadata(req: UpdateVideoRequest):
         if not source_url:
             raise HTTPException(status_code=400, detail="Video has no source URL")
 
-        # Find all chunks for this video and update them
+        # Build the metadata update dict
+        metadata_update = {}
+        if req.title is not None:
+            metadata_update["title"] = req.title
+        if req.summary is not None:
+            metadata_update["summary"] = req.summary
+        if req.key_takeaway is not None:
+            metadata_update["key_takeaway"] = req.key_takeaway
+
+        if not metadata_update:
+            return {"status": "success", "message": "No fields to update", "updated_count": 0}
+
+        # Find all chunks for this video using multiple query strategies
         dummy_vector = [0.0] * 1536
+        all_chunk_ids = set()
+
+        # Strategy 1: Query with source filter
         results = index.query(
             vector=dummy_vector,
             top_k=100,
             include_metadata=True,
             filter={"source": {"$eq": source_url}}
         )
-
-        # Update each chunk's metadata
-        updated_count = 0
         for match in results.matches:
-            meta = match.metadata.copy()
+            all_chunk_ids.add(match.id)
 
-            # Update fields if provided
-            if req.title is not None:
-                meta["title"] = req.title
-            if req.summary is not None:
-                meta["summary"] = req.summary
-            if req.key_takeaway is not None:
-                meta["key_takeaway"] = req.key_takeaway
+        # Strategy 2: Also try fetching by ID pattern (timestamp_0, timestamp_1, etc.)
+        # The video_id should be like "1234567890_0"
+        base_id = req.video_id.rsplit("_", 1)[0] if "_" in req.video_id else req.video_id
+        potential_ids = [f"{base_id}_{i}" for i in range(20)]  # Check up to 20 chunks
+        fetch_result = index.fetch(ids=potential_ids)
+        if fetch_result.vectors:
+            for vid in fetch_result.vectors:
+                all_chunk_ids.add(vid)
 
-            # Upsert with updated metadata
-            vec_result = index.fetch(ids=[match.id])
-            if vec_result.vectors and match.id in vec_result.vectors:
-                vector_data = vec_result.vectors[match.id]
-                index.upsert(vectors=[{
-                    "id": match.id,
-                    "values": vector_data.values,
-                    "metadata": meta
-                }])
+        print(f"Found {len(all_chunk_ids)} chunks for video {source_url}")
+
+        # Update each chunk using index.update() for efficiency
+        updated_count = 0
+        for chunk_id in all_chunk_ids:
+            try:
+                index.update(
+                    id=chunk_id,
+                    set_metadata=metadata_update
+                )
                 updated_count += 1
+            except Exception as e:
+                print(f"Error updating chunk {chunk_id}: {e}")
 
         return {
             "status": "success",
