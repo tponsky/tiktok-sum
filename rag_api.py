@@ -1647,3 +1647,46 @@ async def claim_legacy_videos(user: dict = Depends(require_auth)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to claim videos: {str(e)}")
+
+
+@app.post("/api/admin/transfer-all-videos")
+async def transfer_all_videos(from_user_id: int, user: dict = Depends(require_auth)):
+    """Transfer all videos from one user to the admin user.
+    Only the admin user can run this.
+    """
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    try:
+        dummy_vector = [0.0] * 1536
+        results = index.query(
+            vector=dummy_vector,
+            top_k=10000,
+            include_metadata=True
+        )
+
+        transferred_count = 0
+        to_user_id = user['user_id']
+
+        for match in results.matches:
+            meta = match.metadata or {}
+            if meta.get("user_id") == from_user_id:
+                index.update(
+                    id=match.id,
+                    set_metadata={"user_id": to_user_id}
+                )
+                transferred_count += 1
+
+        return {
+            "status": "success",
+            "transferred_count": transferred_count,
+            "from_user_id": from_user_id,
+            "to_user_id": to_user_id,
+            "message": f"Transferred {transferred_count} videos from user {from_user_id} to {user['email']}"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to transfer videos: {str(e)}")
