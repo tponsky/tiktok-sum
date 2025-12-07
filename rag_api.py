@@ -1594,3 +1594,56 @@ async def stripe_webhook(request: Request):
         print(f"Added ${amount_usd} to user {user_id}'s balance")
 
     return {"status": "success"}
+
+
+# ============================================================================
+# Admin Endpoints
+# ============================================================================
+
+# Your admin email - only this user can run admin commands
+ADMIN_EMAIL = "todd@staycurrentapp.com"
+
+
+@app.post("/api/admin/claim-legacy-videos")
+async def claim_legacy_videos(user: dict = Depends(require_auth)):
+    """Claim all legacy videos (without user_id) for the current user.
+    Only the admin user can run this.
+    """
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    try:
+        # Get all videos without user_id
+        dummy_vector = [0.0] * 1536
+        results = index.query(
+            vector=dummy_vector,
+            top_k=10000,
+            include_metadata=True
+        )
+
+        claimed_count = 0
+        user_id = user['user_id']
+
+        for match in results.matches:
+            meta = match.metadata or {}
+            # Only update if user_id is not set
+            if "user_id" not in meta:
+                # Update metadata to add user_id
+                index.update(
+                    id=match.id,
+                    set_metadata={"user_id": user_id}
+                )
+                claimed_count += 1
+
+        return {
+            "status": "success",
+            "claimed_count": claimed_count,
+            "user_id": user_id,
+            "message": f"Claimed {claimed_count} legacy videos for user {user['email']}"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to claim videos: {str(e)}")
