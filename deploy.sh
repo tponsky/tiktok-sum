@@ -89,6 +89,9 @@ echo ""
 
 echo -e "${YELLOW}Step 5: Starting new container...${NC}"
 
+# Create data directory if it doesn't exist
+mkdir -p $(pwd)/data
+
 # Build docker run command with all environment variables
 docker run -d \
   --name $CONTAINER_NAME \
@@ -99,7 +102,8 @@ docker run -d \
   -e STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" \
   -e STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET" \
   -e APP_URL="$APP_URL" \
-  -v $(pwd)/users.db:/app/users.db \
+  -e DATA_DIR="/app/data" \
+  -v $(pwd)/data:/app/data \
   --restart unless-stopped \
   $IMAGE_NAME
 
