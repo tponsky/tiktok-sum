@@ -604,6 +604,74 @@ class ShortcutIngestRequest(BaseModel):
     api_key: str
 
 from tiktok_rag_cloud import process_urls
+import plistlib
+import base64
+
+
+@app.get("/api/shortcut/download")
+async def download_shortcut(user: dict = Depends(require_auth)):
+    """Generate and download a personalized iOS Shortcut with the user's API key pre-filled."""
+    import tempfile
+
+    user_id = user['user_id']
+    api_key = simple_auth.get_user_api_key(user_id)
+
+    if not api_key:
+        # Auto-generate an API key if user doesn't have one
+        api_key = simple_auth.generate_api_key(user_id)
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Failed to generate API key")
+
+    # Check if template shortcut exists
+    template_path = os.path.join(os.path.dirname(__file__), "static", "shortcut_template.shortcut")
+
+    if os.path.exists(template_path):
+        # Read template and inject API key
+        with open(template_path, 'rb') as f:
+            try:
+                shortcut_data = plistlib.load(f)
+                # Find and replace the API key placeholder in the shortcut actions
+                shortcut_data = inject_api_key_into_shortcut(shortcut_data, api_key)
+
+                # Write to temp file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.shortcut') as tmp:
+                    plistlib.dump(shortcut_data, tmp)
+                    tmp_path = tmp.name
+
+                return FileResponse(
+                    tmp_path,
+                    media_type='application/octet-stream',
+                    filename='Save to Video Library.shortcut',
+                    headers={"Content-Disposition": "attachment; filename=\"Save to Video Library.shortcut\""}
+                )
+            except Exception as e:
+                print(f"Error processing shortcut template: {e}")
+                raise HTTPException(status_code=500, detail="Failed to generate shortcut")
+    else:
+        # No template - return instructions with API key
+        return {
+            "message": "Shortcut template not found. Please set up manually.",
+            "api_key": api_key,
+            "endpoint": f"{APP_URL}/api/shortcut/ingest"
+        }
+
+
+def inject_api_key_into_shortcut(shortcut_data: dict, api_key: str) -> dict:
+    """Recursively search and replace API key placeholder in shortcut data."""
+    import json
+
+    def replace_in_obj(obj):
+        if isinstance(obj, dict):
+            return {k: replace_in_obj(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [replace_in_obj(item) for item in obj]
+        elif isinstance(obj, str):
+            # Replace placeholders
+            return obj.replace("{{API_KEY}}", api_key).replace("YOUR_API_KEY_HERE", api_key)
+        else:
+            return obj
+
+    return replace_in_obj(shortcut_data)
 
 
 # Shortcut-friendly endpoint that uses API key instead of JWT
@@ -1477,7 +1545,7 @@ async def signup_page():
 
 @app.post("/api/auth/signup", response_model=simple_auth.Token)
 async def signup(user: simple_auth.UserCreate):
-    """Create a new user account with $5 trial balance."""
+    """Create a new user account with $2 trial balance."""
     try:
         # Check if user already exists
         existing_user = simple_auth.get_user_by_email(user.email)

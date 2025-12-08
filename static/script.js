@@ -1179,4 +1179,77 @@ document.addEventListener('DOMContentLoaded', () => {
             revokeApiKeyBtn.textContent = 'Revoke Key';
         }
     });
+
+    // Download Shortcut button
+    const downloadShortcutBtn = document.getElementById('downloadShortcut');
+    const shortcutDownloadStatus = document.getElementById('shortcutDownloadStatus');
+
+    if (downloadShortcutBtn) {
+        downloadShortcutBtn.addEventListener('click', async () => {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                shortcutDownloadStatus.textContent = 'Please log in first';
+                shortcutDownloadStatus.className = 'shortcut-status error';
+                return;
+            }
+
+            downloadShortcutBtn.disabled = true;
+            downloadShortcutBtn.innerHTML = '<span class="download-icon">⏳</span> Preparing...';
+            shortcutDownloadStatus.textContent = '';
+
+            try {
+                const response = await fetch('/api/shortcut/download', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const contentType = response.headers.get('content-type');
+
+                    if (contentType && contentType.includes('application/json')) {
+                        // No template available - show API key for manual setup
+                        const data = await response.json();
+                        shortcutDownloadStatus.textContent = 'Template not available. Use the API key below for manual setup.';
+                        shortcutDownloadStatus.className = 'shortcut-status';
+
+                        // Auto-fill API key display
+                        if (data.api_key && apiKeyDisplay) {
+                            apiKeyDisplay.value = data.api_key;
+                            copyApiKeyBtn.disabled = false;
+                            revokeApiKeyBtn.disabled = false;
+                            apiKeyStatus.textContent = 'API key ready for manual setup';
+                            apiKeyStatus.className = 'api-key-status success';
+                        }
+                    } else {
+                        // Download the shortcut file
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'Save to Video Library.shortcut';
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        a.remove();
+
+                        shortcutDownloadStatus.textContent = 'Downloaded! Open the file to add to Shortcuts.';
+                        shortcutDownloadStatus.className = 'shortcut-status';
+
+                        // Refresh API key display
+                        loadApiKey();
+                    }
+                } else {
+                    const data = await response.json();
+                    shortcutDownloadStatus.textContent = data.detail || 'Failed to generate shortcut';
+                    shortcutDownloadStatus.className = 'shortcut-status error';
+                }
+            } catch (error) {
+                console.error('Failed to download shortcut:', error);
+                shortcutDownloadStatus.textContent = 'Failed to download shortcut';
+                shortcutDownloadStatus.className = 'shortcut-status error';
+            } finally {
+                downloadShortcutBtn.disabled = false;
+                downloadShortcutBtn.innerHTML = '<span class="download-icon">⬇️</span> Download iOS Shortcut';
+            }
+        });
+    }
 });
