@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video RAG Search</title>
-    <link rel="stylesheet" href="/static/style.css?v=12">
+    <link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 
 <body>
@@ -142,30 +142,30 @@ https://www.instagram.com/reel/xyz"></textarea>
                     <p id="apiKeyStatus" class="api-key-status"></p>
                 </div>
 
-                <div class="shortcut-download-section">
-                    <h4>Download Shortcut</h4>
-                    <p class="shortcut-download-description">Click below to download a personalized shortcut with your API key already configured.</p>
-                    <button id="downloadShortcut" class="download-shortcut-btn">
-                        <span class="download-icon">⬇️</span>
-                        Download iOS Shortcut
-                    </button>
-                    <p id="shortcutDownloadStatus" class="shortcut-status"></p>
-                </div>
-
                 <div class="shortcut-instructions">
-                    <h4>How to Use</h4>
+                    <h4>Setup Instructions</h4>
                     <ol>
-                        <li>Download the shortcut above (your API key is pre-filled!)</li>
-                        <li>Open the downloaded file to add it to Shortcuts</li>
-                        <li>When watching a video, tap Share → "Save to Video Library"</li>
-                        <li>The video will be added to your library automatically</li>
+                        <li><strong>Generate your API key</strong> above (if you haven't already)</li>
+                        <li><strong>Copy your API key</strong> using the Copy button</li>
+                        <li><strong>Create a new shortcut</strong> in the iOS Shortcuts app</li>
+                        <li>Add a <strong>"Get Contents of URL"</strong> action with these settings:
+                            <ul style="margin-top: 8px; margin-left: 20px;">
+                                <li>URL: <code>https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</code></li>
+                                <li>Method: POST</li>
+                                <li>Request Body: JSON</li>
+                                <li>Add key <code>url</code> with value <code>Shortcut Input</code></li>
+                                <li>Add key <code>api_key</code> with your API key</li>
+                            </ul>
+                        </li>
+                        <li><strong>Enable "Show in Share Sheet"</strong> in shortcut settings</li>
+                        <li>When watching a video, tap <strong>Share → Your Shortcut Name</strong></li>
                     </ol>
 
-                    <details class="manual-setup">
-                        <summary>Manual Setup (Advanced)</summary>
-                        <p class="endpoint-info">Your shortcut should POST to:</p>
+                    <details class="manual-setup" style="margin-top: 15px;">
+                        <summary>API Reference</summary>
+                        <p class="endpoint-info">Endpoint:</p>
                         <code class="endpoint-url">https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</code>
-                        <p class="endpoint-body">With JSON body:</p>
+                        <p class="endpoint-body">JSON body:</p>
                         <pre class="endpoint-example">{
   "url": "https://www.tiktok.com/...",
   "api_key": "your_api_key_here",
@@ -235,7 +235,7 @@ https://www.instagram.com/reel/xyz"></textarea>
             </div>
         </div>
     </div>
-    <script src="/static/script.js?v=21"></script>
+    <script src="/static/script.js?v=22"></script>
 </body>
 
 </html>
