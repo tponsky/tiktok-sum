@@ -309,25 +309,47 @@ button:hover {
 .tabs {
     display: flex;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
     margin-bottom: 20px;
+    flex-wrap: wrap;
 }
 
 .tab-btn {
-    background-color: transparent;
-    color: #666;
-    border: 2px solid transparent;
-    border-radius: 20px;
-    padding: 8px 20px;
+    background-color: #ffffff;
+    color: #555;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 10px 18px;
     cursor: pointer;
     font-weight: 600;
-    transition: all 0.3s;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+    position: relative;
+}
+
+.tab-btn:hover {
+    background-color: #f8f8f8;
+    border-color: #ccc;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tab-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .tab-btn.active {
-    background-color: #fff;
-    color: var(--primary-color);
+    background-color: var(--primary-color);
+    color: #fff;
     border-color: var(--primary-color);
+    box-shadow: 0 4px 12px rgba(254, 44, 85, 0.3);
+}
+
+.tab-btn.active:hover {
+    background-color: var(--primary-color);
+    transform: translateY(-1px);
 }
 
 .tab-content.hidden {
@@ -773,7 +795,9 @@ textarea:focus {
     vertical-align: middle;
 }
 
-.reprocess-btn {
+.reprocess-btn,
+.reingest-btn,
+.delete-btn {
     background: none;
     border: none;
     cursor: pointer;
@@ -783,11 +807,18 @@ textarea:focus {
     transition: background 0.2s;
 }
 
-.reprocess-btn:hover {
+.reprocess-btn:hover,
+.reingest-btn:hover {
     background: #f0f0f0;
 }
 
-.reprocess-btn:disabled {
+.delete-btn:hover {
+    background: #fee2e2;
+}
+
+.reprocess-btn:disabled,
+.reingest-btn:disabled,
+.delete-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
@@ -943,6 +974,30 @@ textarea:focus {
     border-radius: 8px;
 }
 
+.category-name {
+    flex: 1;
+}
+
+.category-actions {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.edit-category-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.edit-category-btn:hover {
+    background: #e8e8e8;
+}
+
 .delete-category-btn {
     background: none;
     border: none;
@@ -996,6 +1051,34 @@ textarea:focus {
     width: 100%;
     padding: 12px;
     font-size: 16px;
+}
+
+/* Inline add category in video edit modal */
+.add-category-inline {
+    display: flex;
+    gap: 8px;
+    margin: 15px 0;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.add-category-inline input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.add-category-inline input:focus {
+    border-color: var(--primary-color);
+    outline: none;
+}
+
+.add-category-inline button {
+    padding: 8px 16px;
+    font-size: 14px;
+    white-space: nowrap;
 }
 
 /* Larger modal for edit form */
@@ -1081,7 +1164,412 @@ textarea:focus {
     border-color: #ccc;
 }
 
-/* Shortcut/API Key Section */
+/* Shortcut Tab Button - Special styling */
+.shortcut-tab-btn {
+    background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%) !important;
+    color: white !important;
+    border: 2px solid transparent !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 13px;
+    box-shadow: 0 3px 10px rgba(0, 122, 255, 0.35) !important;
+    padding: 10px 16px;
+}
+
+.shortcut-tab-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 5px 15px rgba(0, 122, 255, 0.45) !important;
+}
+
+.shortcut-tab-btn.active {
+    background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%) !important;
+    border: 2px solid white !important;
+    box-shadow: 0 4px 15px rgba(0, 122, 255, 0.5) !important;
+}
+
+.apple-icon::before {
+    content: "";
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Shortcut Intro Banner */
+.shortcut-intro-banner {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+    border: 2px solid #007AFF;
+    border-radius: 16px;
+    padding: 25px 30px;
+    margin-bottom: 20px;
+}
+
+.shortcut-intro-icon {
+    font-size: 48px;
+    flex-shrink: 0;
+}
+
+.shortcut-intro-text h2 {
+    margin: 0 0 6px 0;
+    font-size: 1.5em;
+    color: #1a1a2e;
+}
+
+.shortcut-intro-text p {
+    margin: 0;
+    color: #555;
+    font-size: 1em;
+}
+
+/* Steps Required Notice */
+.steps-required-notice {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: linear-gradient(135deg, #fff8e6 0%, #fff3d4 100%);
+    border: 2px solid #f59e0b;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 25px;
+}
+
+.notice-icon {
+    font-size: 28px;
+    flex-shrink: 0;
+}
+
+.notice-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.notice-text strong {
+    color: #92400e;
+    font-size: 1em;
+}
+
+.notice-text span {
+    color: #a16207;
+    font-size: 0.9em;
+}
+
+/* Step Cards styling */
+.step-card {
+    border-left: 4px solid var(--primary-color);
+}
+
+.step-status {
+    margin-left: auto;
+    background: #fee2e2;
+    color: #dc2626;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+}
+
+.step-status.complete {
+    background: #d1fae5;
+    color: #059669;
+}
+
+/* Download Section within Step 2 */
+.download-section {
+    text-align: center;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 12px;
+}
+
+.download-shortcut-btn-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+    color: white;
+    text-decoration: none;
+    padding: 14px 28px;
+    border-radius: 25px;
+    font-size: 16px;
+    font-weight: 700;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+}
+
+.download-shortcut-btn-inline:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 122, 255, 0.4);
+}
+
+.download-shortcut-btn-inline .apple-icon::before {
+    content: "";
+    font-size: 20px;
+}
+
+.download-hint {
+    margin: 12px 0 0 0;
+    font-size: 0.85em;
+    color: #888;
+}
+
+/* Success Card */
+.success-card {
+    border-left: 4px solid #10b981;
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+}
+
+.success-number {
+    background: #10b981 !important;
+    font-size: 18px;
+}
+
+/* Legacy - keep for compatibility but no longer used at top */
+.shortcut-hero {
+    background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+    border-radius: 16px;
+    padding: 40px;
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.shortcut-hero-content h2 {
+    color: white;
+    margin: 0 0 10px 0;
+    font-size: 1.8em;
+}
+
+.shortcut-hero-content p {
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 25px 0;
+    font-size: 1.1em;
+}
+
+.hero-download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: white;
+    color: #007AFF;
+    text-decoration: none;
+    padding: 16px 32px;
+    border-radius: 30px;
+    font-size: 18px;
+    font-weight: 700;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.hero-download-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.3);
+}
+
+.hero-download-btn .apple-icon::before {
+    content: "";
+    font-size: 22px;
+}
+
+/* Instruction Cards */
+.shortcut-instructions {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+.instruction-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 25px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.instruction-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.instruction-number {
+    width: 36px;
+    height: 36px;
+    background: var(--primary-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.instruction-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+}
+
+.instruction-card > p {
+    color: #666;
+    margin: 0 0 15px 0;
+}
+
+/* API Key Box */
+.api-key-box {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+}
+
+.copy-btn {
+    background: #e0e0e0;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.copy-btn:hover:not(:disabled) {
+    background: #d0d0d0;
+}
+
+.copy-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.text-btn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 10px 16px;
+}
+
+.text-btn:hover:not(:disabled) {
+    text-decoration: underline;
+}
+
+.text-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Instruction Steps */
+.instruction-steps {
+    margin-top: 10px;
+}
+
+.instruction-step {
+    margin-bottom: 20px;
+}
+
+.instruction-step:last-child {
+    margin-bottom: 0;
+}
+
+.instruction-step p {
+    margin: 0 0 10px 0;
+    color: #333;
+    line-height: 1.5;
+}
+
+.instruction-step code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.use-steps {
+    margin: 10px 0 15px 20px;
+    padding: 0;
+}
+
+.use-steps li {
+    margin: 8px 0;
+    color: #444;
+}
+
+/* Screenshot Placeholders */
+.screenshot-placeholder {
+    background: #f5f5f5;
+    border: 2px dashed #ddd;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    margin-top: 10px;
+    min-height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screenshot-placeholder img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.screenshot-placeholder.no-image {
+    display: none;
+}
+
+.screenshot-placeholder.screenshot-small {
+    min-height: auto;
+    padding: 10px;
+}
+
+.screenshot-placeholder.screenshot-small img {
+    max-width: 80px;
+    max-height: 80px;
+}
+
+.screenshot-placeholder.no-image::after {
+    content: "Screenshot: " attr(data-img);
+    color: #999;
+    font-size: 0.9em;
+}
+
+/* Advanced Section */
+.advanced-section {
+    margin-top: 30px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.advanced-section summary {
+    padding: 15px 20px;
+    background: #f5f5f5;
+    cursor: pointer;
+    font-weight: 600;
+    color: #666;
+}
+
+.advanced-content {
+    padding: 20px;
+}
+
+.advanced-content ol {
+    margin: 15px 0;
+    padding-left: 20px;
+    color: #555;
+}
+
+.advanced-content li {
+    margin: 8px 0;
+}
+
+/* Legacy styles kept for compatibility */
 .shortcut-section {
     background-color: var(--card-bg);
     padding: 30px;
@@ -1249,12 +1737,74 @@ textarea:focus {
     color: #fecaca;
 }
 
-.shortcut-instructions {
-    margin-top: 25px;
+/* Setup Steps */
+.setup-step {
+    display: flex;
+    gap: 20px;
+    padding: 25px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.setup-step:last-of-type {
+    border-bottom: none;
+}
+
+.step-number {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    background: var(--primary-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-content h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-color);
+    font-size: 1.1em;
+}
+
+.step-content > p {
+    color: #666;
+    margin: 0 0 15px 0;
+    font-size: 0.95em;
+}
+
+.step-note {
+    font-size: 0.85em !important;
+    color: #888 !important;
+    margin-top: 10px !important;
+}
+
+.inline-steps {
+    margin: 10px 0 0 0;
+    padding-left: 20px;
+    color: #555;
+}
+
+.inline-steps li {
+    margin: 6px 0;
+    line-height: 1.5;
+}
+
+.inline-steps code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
 }
 
 .manual-setup {
-    margin-top: 20px;
+    margin-top: 30px;
     border: 1px solid #ddd;
     border-radius: 8px;
     overflow: hidden;
@@ -1267,6 +1817,20 @@ textarea:focus {
     font-weight: 600;
     font-size: 0.9em;
     color: #666;
+}
+
+.manual-setup-content {
+    padding: 15px;
+}
+
+.manual-setup-content ol {
+    margin: 10px 0;
+    padding-left: 20px;
+    color: #555;
+}
+
+.manual-setup-content li {
+    margin: 6px 0;
 }
 
 .shortcut-instructions h4 {
@@ -1323,11 +1887,85 @@ textarea:focus {
 @media (max-width: 600px) {
     .tabs {
         flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 5px;
     }
 
     .tab-btn {
-        flex: 1 1 45%;
+        flex: 1 1 calc(50% - 4px);
         text-align: center;
+        padding: 12px 10px;
+        font-size: 13px;
+        min-height: 44px; /* iOS touch target */
+    }
+
+    .shortcut-tab-btn {
+        flex: 1 1 100%;
+        order: 5; /* Put at the end on mobile */
+        margin-top: 4px;
+    }
+
+    /* Shortcut tab mobile improvements */
+    .shortcut-intro-banner {
+        flex-direction: column;
+        text-align: center;
+        padding: 20px;
+        gap: 12px;
+    }
+
+    .shortcut-intro-icon {
+        font-size: 36px;
+    }
+
+    .shortcut-intro-text h2 {
+        font-size: 1.3em;
+    }
+
+    .steps-required-notice {
+        flex-direction: column;
+        text-align: center;
+        gap: 10px;
+        padding: 15px;
+    }
+
+    .notice-icon {
+        font-size: 24px;
+    }
+
+    .notice-text {
+        align-items: center;
+    }
+
+    .instruction-card {
+        padding: 18px;
+    }
+
+    .instruction-header {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .step-status {
+        margin-left: 0;
+    }
+
+    .download-shortcut-btn-inline {
+        padding: 14px 24px;
+        font-size: 15px;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .api-key-display {
+        flex-direction: column;
+    }
+
+    .api-key-actions {
+        flex-direction: column;
+    }
+
+    .api-key-actions button {
+        width: 100%;
     }
 
     .library-header {
