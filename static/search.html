@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video RAG Search</title>
-    <link rel="stylesheet" href="/static/style.css?v=13">
+    <link rel="stylesheet" href="/static/style.css?v=50">
 </head>
 
 <body>
@@ -30,7 +30,9 @@
             <button class="tab-btn" data-tab="ingest">Add Source</button>
             <button class="tab-btn" data-tab="bulk">Bulk Upload</button>
             <button class="tab-btn" data-tab="library">Library</button>
-            <button class="tab-btn" data-tab="shortcut">Shortcut</button>
+            <button class="tab-btn shortcut-tab-btn" data-tab="shortcut">
+                <span class="apple-icon"></span> Get iOS Shortcut
+            </button>
         </div>
 
         <div id="search-tab" class="tab-content active">
@@ -124,55 +126,137 @@ https://www.instagram.com/reel/xyz"></textarea>
 
         <!-- Shortcut/API Key Tab -->
         <div id="shortcut-tab" class="tab-content hidden">
-            <div class="shortcut-section">
-                <h3>iOS Shortcut Integration</h3>
-                <p>Add videos to your library directly from TikTok, Instagram, or YouTube using iOS Shortcuts.</p>
+            <!-- Intro Banner -->
+            <div class="shortcut-intro-banner">
+                <div class="shortcut-intro-icon">📱</div>
+                <div class="shortcut-intro-text">
+                    <h2>Save Videos with One Tap</h2>
+                    <p>Add videos from TikTok, Instagram, or YouTube directly to your library using iOS Shortcuts.</p>
+                </div>
+            </div>
 
-                <div class="api-key-section">
-                    <h4>Your API Key</h4>
-                    <p class="api-key-description">Use this key in your iOS Shortcut to authenticate. Keep it secret!</p>
-                    <div class="api-key-display">
-                        <input type="text" id="apiKeyDisplay" readonly placeholder="No API key generated yet">
-                        <button id="copyApiKey" class="secondary-btn" disabled>Copy</button>
+            <!-- Steps Required Notice -->
+            <div class="steps-required-notice">
+                <div class="notice-icon">⚠️</div>
+                <div class="notice-text">
+                    <strong>Complete all 3 steps below to set up the shortcut.</strong>
+                    <span>The shortcut won't work without your API key!</span>
+                </div>
+            </div>
+
+            <div class="shortcut-instructions">
+                <!-- Step 1: Generate API Key -->
+                <div class="instruction-card step-card" id="step1-card">
+                    <div class="instruction-header">
+                        <span class="instruction-number">1</span>
+                        <h3>Generate Your API Key</h3>
+                        <span class="step-status" id="step1-status">Required</span>
                     </div>
-                    <div class="api-key-actions">
-                        <button id="generateApiKey" class="primary-btn">Generate New Key</button>
-                        <button id="revokeApiKey" class="danger-btn" disabled>Revoke Key</button>
+                    <p>This key connects the shortcut to your account:</p>
+                    <div class="api-key-box">
+                        <div class="api-key-display">
+                            <input type="text" id="apiKeyDisplay" readonly placeholder="Click 'Generate' to create your key">
+                            <button id="copyApiKey" class="copy-btn" disabled>Copy</button>
+                        </div>
+                        <div class="api-key-actions">
+                            <button id="generateApiKey" class="primary-btn">Generate Key</button>
+                            <button id="revokeApiKey" class="text-btn" disabled>Revoke</button>
+                        </div>
+                        <p id="apiKeyStatus" class="api-key-status"></p>
                     </div>
-                    <p id="apiKeyStatus" class="api-key-status"></p>
                 </div>
 
-                <div class="shortcut-instructions">
-                    <h4>Setup Instructions</h4>
-                    <ol>
-                        <li><strong>Generate your API key</strong> above (if you haven't already)</li>
-                        <li><strong>Copy your API key</strong> using the Copy button</li>
-                        <li><strong>Create a new shortcut</strong> in the iOS Shortcuts app</li>
-                        <li>Add a <strong>"Get Contents of URL"</strong> action with these settings:
-                            <ul style="margin-top: 8px; margin-left: 20px;">
-                                <li>URL: <code>https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</code></li>
-                                <li>Method: POST</li>
-                                <li>Request Body: JSON</li>
-                                <li>Add key <code>url</code> with value <code>Shortcut Input</code></li>
-                                <li>Add key <code>api_key</code> with your API key</li>
-                            </ul>
-                        </li>
-                        <li><strong>Enable "Show in Share Sheet"</strong> in shortcut settings</li>
-                        <li>When watching a video, tap <strong>Share → Your Shortcut Name</strong></li>
-                    </ol>
+                <!-- Step 2: Download Shortcut -->
+                <div class="instruction-card step-card" id="step2-card">
+                    <div class="instruction-header">
+                        <span class="instruction-number">2</span>
+                        <h3>Download the Shortcut</h3>
+                    </div>
+                    <p>Get the iOS Shortcut on your iPhone:</p>
+                    <div class="download-section">
+                        <a href="https://www.icloud.com/shortcuts/fd9bd71da15a4da79518ae554f9f068f" class="download-shortcut-btn-inline" target="_blank">
+                            <span class="apple-icon"></span> Download Shortcut
+                        </a>
+                        <p class="download-hint">Opens in Safari → Tap "Get Shortcut" → "Add Shortcut"</p>
+                    </div>
+                </div>
 
-                    <details class="manual-setup" style="margin-top: 15px;">
-                        <summary>API Reference</summary>
-                        <p class="endpoint-info">Endpoint:</p>
-                        <code class="endpoint-url">https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</code>
-                        <p class="endpoint-body">JSON body:</p>
+                <!-- Step 3: Configure the Shortcut -->
+                <div class="instruction-card step-card" id="step3-card">
+                    <div class="instruction-header">
+                        <span class="instruction-number">3</span>
+                        <h3>Add Your API Key to the Shortcut</h3>
+                    </div>
+                    <div class="instruction-steps">
+                        <div class="instruction-step">
+                            <p><strong>a.</strong> Open the <strong>Shortcuts</strong> app on your iPhone</p>
+                            <div class="screenshot-placeholder screenshot-small" data-img="shortcuts-app.png">
+                                <img src="/static/screenshots/shortcuts-app.png" alt="Open Shortcuts app" onerror="this.parentElement.classList.add('no-image')">
+                            </div>
+                        </div>
+                        <div class="instruction-step">
+                            <p><strong>b.</strong> Find <strong>"Video Library"</strong> and tap the <strong>⋯</strong> button to edit</p>
+                            <div class="screenshot-placeholder" data-img="edit-shortcut.png">
+                                <img src="/static/screenshots/edit-shortcut.png" alt="Edit the shortcut" onerror="this.parentElement.classList.add('no-image')">
+                            </div>
+                        </div>
+                        <div class="instruction-step">
+                            <p><strong>c.</strong> Find the <code>api_key</code> field and replace <code>PASTE_YOUR_API_KEY_HERE</code> with your key</p>
+                            <div class="screenshot-placeholder" data-img="paste-key.png">
+                                <img src="/static/screenshots/paste-key.png" alt="Paste your API key" onerror="this.parentElement.classList.add('no-image')">
+                            </div>
+                        </div>
+                        <div class="instruction-step">
+                            <p><strong>d.</strong> Tap <strong>Done</strong> to save</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Success / How to Use -->
+                <div class="instruction-card success-card">
+                    <div class="instruction-header">
+                        <span class="instruction-number success-number">✓</span>
+                        <h3>You're All Set!</h3>
+                    </div>
+                    <div class="instruction-steps">
+                        <div class="instruction-step">
+                            <p>When watching any video on TikTok, Instagram, or YouTube:</p>
+                            <ol class="use-steps">
+                                <li>Tap the <strong>Share</strong> button</li>
+                                <li>Scroll the bottom row and tap <strong>"Video Library"</strong></li>
+                                <li>The video will be transcribed and added to your library!</li>
+                            </ol>
+                            <div class="screenshot-placeholder" data-img="share-menu.png">
+                                <img src="/static/screenshots/share-menu.png" alt="Share menu example" onerror="this.parentElement.classList.add('no-image')">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <details class="advanced-section">
+                    <summary>Advanced: Manual Setup / API Reference</summary>
+                    <div class="advanced-content">
+                        <p>If you prefer to create the shortcut manually:</p>
+                        <ol>
+                            <li>Create a new shortcut</li>
+                            <li>Add <strong>"Receive Apps and 18 more from Share Sheet"</strong> as the input</li>
+                            <li>Set "If there's no input" to <strong>Continue</strong></li>
+                            <li>Add <strong>"Get Contents of URL"</strong> action</li>
+                            <li>Set URL to: <code>https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</code></li>
+                            <li>Set Method to: <strong>POST</strong></li>
+                            <li>Set Request Body to: <strong>JSON</strong></li>
+                            <li>Add field <code>url</code> → <strong>Shortcut Input</strong></li>
+                            <li>Add field <code>api_key</code> → your API key</li>
+                            <li>Add <strong>"Show Notification"</strong> action with message "Video Saved!"</li>
+                        </ol>
+                        <p class="endpoint-body">JSON body format:</p>
                         <pre class="endpoint-example">{
   "url": "https://www.tiktok.com/...",
   "api_key": "your_api_key_here",
   "topic": "optional category"
 }</pre>
-                    </details>
-                </div>
+                    </div>
+                </details>
             </div>
         </div>
 
@@ -203,6 +287,10 @@ https://www.instagram.com/reel/xyz"></textarea>
                 <div class="modal-body">
                     <p id="editVideoTitle" class="edit-video-title"></p>
                     <div id="videoCategoryCheckboxes" class="category-checkboxes"></div>
+                    <div class="add-category-inline">
+                        <input type="text" id="newCategoryInline" placeholder="Add new category...">
+                        <button id="addCategoryInlineBtn" type="button">Add</button>
+                    </div>
                     <button id="saveVideoCategoriesBtn" class="save-btn">Save Categories</button>
                 </div>
             </div>
@@ -235,7 +323,7 @@ https://www.instagram.com/reel/xyz"></textarea>
             </div>
         </div>
     </div>
-    <script src="/static/script.js?v=22"></script>
+    <script src="/static/script.js?v=28"></script>
 </body>
 
 </html>
