@@ -14,7 +14,7 @@
 				<key>UUID</key>
 				<string>D1F8EAD3-5192-4638-BB0B-11E57FBE83AE</string>
 				<key>WFURLActionURL</key>
-				<string>https://tiktoksum.staycurrentapp.com/api/shortcut/ingest</string>
+				<string>{{APP_URL}}/api/shortcut/ingest</string>
 			</dict>
 		</dict>
 		<dict>

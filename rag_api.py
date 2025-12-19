@@ -630,8 +630,8 @@ async def download_shortcut(user: dict = Depends(require_auth)):
         with open(template_path, 'rb') as f:
             try:
                 shortcut_data = plistlib.load(f)
-                # Find and replace the API key placeholder in the shortcut actions
-                shortcut_data = inject_api_key_into_shortcut(shortcut_data, api_key)
+                # Find and replace the API key and APP_URL placeholders in the shortcut actions
+                shortcut_data = inject_placeholder_into_shortcut(shortcut_data, api_key, APP_URL)
 
                 # Write to temp file
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.shortcut') as tmp:
@@ -656,10 +656,8 @@ async def download_shortcut(user: dict = Depends(require_auth)):
         }
 
 
-def inject_api_key_into_shortcut(shortcut_data: dict, api_key: str) -> dict:
-    """Recursively search and replace API key placeholder in shortcut data."""
-    import json
-
+def inject_placeholder_into_shortcut(shortcut_data: dict, api_key: str, app_url: str) -> dict:
+    """Recursively search and replace placeholders in shortcut data."""
     def replace_in_obj(obj):
         if isinstance(obj, dict):
             return {k: replace_in_obj(v) for k, v in obj.items()}
@@ -667,7 +665,9 @@ def inject_api_key_into_shortcut(shortcut_data: dict, api_key: str) -> dict:
             return [replace_in_obj(item) for item in obj]
         elif isinstance(obj, str):
             # Replace placeholders
-            return obj.replace("{{API_KEY}}", api_key).replace("YOUR_API_KEY_HERE", api_key)
+            res = obj.replace("{{API_KEY}}", api_key).replace("YOUR_API_KEY_HERE", api_key)
+            res = res.replace("{{APP_URL}}", app_url).replace("https://tiktoksum.staycurrentapp.com", app_url)
+            return res
         else:
             return obj
 
@@ -676,10 +676,26 @@ def inject_api_key_into_shortcut(shortcut_data: dict, api_key: str) -> dict:
 
 # Shortcut-friendly endpoint that uses API key instead of JWT
 @app.post("/api/shortcut/ingest")
-async def shortcut_ingest_video(req: ShortcutIngestRequest, background_tasks: BackgroundTasks):
+async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTasks):
     """Ingest a video using API key (for iOS Shortcuts)."""
+    # Try to get data from JSON body
+    try:
+        data = await request.json()
+    except:
+        data = {}
+
+    # Get API key from body or header
+    api_key = data.get("api_key") or request.headers.get("X-API-Key")
+    url = data.get("url")
+    topic = data.get("topic", "")
+
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing API key")
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing video URL")
+
     # Authenticate via API key
-    user = simple_auth.get_user_by_api_key(req.api_key)
+    user = simple_auth.get_user_by_api_key(api_key)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid API key")
     if not user.get('is_active', True):
@@ -697,16 +713,16 @@ async def shortcut_ingest_video(req: ShortcutIngestRequest, background_tasks: Ba
 
     # Deduct cost and log usage
     simple_auth.deduct_from_balance(user_id, COST_PER_INGEST)
-    simple_auth.log_usage(user_id, "shortcut_ingest", cost_usd=COST_PER_INGEST, details=req.url[:100])
+    simple_auth.log_usage(user_id, "shortcut_ingest", cost_usd=COST_PER_INGEST, details=url[:100])
 
     # Process video
-    background_tasks.add_task(process_urls, [req.url], req.topic, user_id)
+    background_tasks.add_task(process_urls, [url], topic, user_id)
 
     new_balance = simple_auth.get_user_balance(user_id)
     return {
         "status": "processing_started",
         "message": f"Video added to your library",
-        "url": req.url,
+        "url": url,
         "balance_remaining": f"${new_balance:.2f}"
     }
 
@@ -1805,12 +1821,23 @@ async def stripe_webhook(request: Request):
     # Handle checkout.session.completed event
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        user_id = int(session["metadata"]["user_id"])
-        amount_usd = float(session["metadata"]["amount_usd"])
+        user_id = int(session["metadata"].get("user_id"))
+        
+        # Use amount_total from session for security (source of truth), convert cents to dollars
+        amount_usd = float(session.get("amount_total", 0)) / 100.0
 
-        # Add funds to user's balance
-        simple_auth.add_to_balance(user_id, amount_usd)
-        print(f"Added ${amount_usd} to user {user_id}'s balance")
+        if user_id and amount_usd > 0:
+            # Add funds to user's balance
+            simple_auth.add_to_balance(user_id, amount_usd)
+            
+            # Log the deposit (cost_usd=0 because it's a credit, not spending)
+            simple_auth.log_usage(
+                user_id, 
+                "deposit", 
+                cost_usd=0.0, 
+                details=f"Stripe Deposit: ${amount_usd:.2f}"
+            )
+            print(f"Added ${amount_usd:.2f} to user {user_id}'s balance")
 
     return {"status": "success"}
 
