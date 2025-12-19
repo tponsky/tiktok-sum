@@ -622,9 +622,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="library-card-header">
                     <h5 class="library-title">${recentBadge}${video.title || 'Untitled'}</h5>
                     <div class="card-actions">
-                        <button class="reprocess-btn" title="Reprocess with AI">🔄</button>
+                        <button class="reingest-btn" title="Reprocess with AI">🔄</button>
                         <button class="edit-details-btn" title="Edit title, summary, takeaway">✏️</button>
                         <button class="edit-categories-btn" title="Edit categories">🏷️</button>
+                        <button class="delete-btn" title="Delete video">🗑️</button>
                         <a href="${video.source}" target="_blank" class="video-link">↗</a>
                     </div>
                 </div>
@@ -647,36 +648,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ` : ''}
             `;
 
-            // Add click handler for reprocess button
-            const reprocessBtn = card.querySelector('.reprocess-btn');
-            reprocessBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                reprocessBtn.disabled = true;
-                reprocessBtn.textContent = '⏳';
-                try {
-                    const response = await fetch('/video/reprocess', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ video_id: video.id })
-                    });
-                    const result = await response.json();
-                    if (response.ok) {
-                        reprocessBtn.textContent = '✅';
-                        setTimeout(() => loadLibrary(), 1000);
-                    } else {
-                        reprocessBtn.textContent = '❌';
-                        alert('Reprocess failed: ' + (result.detail || 'Unknown error'));
-                    }
-                } catch (err) {
-                    reprocessBtn.textContent = '❌';
-                    alert('Reprocess failed: ' + err.message);
-                }
-                setTimeout(() => {
-                    reprocessBtn.disabled = false;
-                    reprocessBtn.textContent = '🔄';
-                }, 2000);
-            });
-
             // Add click handler for edit categories button
             const editCatBtn = card.querySelector('.edit-categories-btn');
             editCatBtn.addEventListener('click', (e) => {
@@ -689,6 +660,94 @@ document.addEventListener('DOMContentLoaded', () => {
             editDetailsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 openVideoEditModal(video);
+            });
+
+            // Add click handler for delete button
+            const deleteBtn = card.querySelector('.delete-btn');
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`Are you sure you want to delete "${video.title || 'this video'}"? This cannot be undone.`)) {
+                    return;
+                }
+                deleteBtn.disabled = true;
+                deleteBtn.textContent = '⏳';
+                try {
+                    const token = localStorage.getItem('auth_token');
+                    const response = await fetch('/video/delete', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ video_id: video.id })
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        card.style.opacity = '0.5';
+                        card.style.transition = 'opacity 0.3s';
+                        setTimeout(() => {
+                            card.remove();
+                            loadLibrary();
+                        }, 300);
+                    } else {
+                        deleteBtn.textContent = '❌';
+                        alert('Delete failed: ' + (result.detail || 'Unknown error'));
+                        setTimeout(() => {
+                            deleteBtn.disabled = false;
+                            deleteBtn.textContent = '🗑️';
+                        }, 2000);
+                    }
+                } catch (err) {
+                    deleteBtn.textContent = '❌';
+                    alert('Delete failed: ' + err.message);
+                    setTimeout(() => {
+                        deleteBtn.disabled = false;
+                        deleteBtn.textContent = '🗑️';
+                    }, 2000);
+                }
+            });
+
+            // Add click handler for reprocess button (re-downloads and re-transcribes)
+            const reingestBtn = card.querySelector('.reingest-btn');
+            reingestBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`Reprocess "${video.title || 'this video'}"?\n\nThis will re-download, re-transcribe, and regenerate all AI content. Cost: $0.03`)) {
+                    return;
+                }
+                reingestBtn.disabled = true;
+                reingestBtn.textContent = '⏳';
+                try {
+                    const token = localStorage.getItem('auth_token');
+                    const response = await fetch('/video/reingest', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ video_id: video.id })
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        reingestBtn.textContent = '✅';
+                        alert('Reprocessing started! The video will be updated shortly.');
+                        loadUsageInfo();
+                        setTimeout(() => loadLibrary(), 3000);
+                    } else if (response.status === 402) {
+                        reingestBtn.textContent = '❌';
+                        alert('Insufficient balance. Please add funds to continue.');
+                        addFundsBtn.classList.remove('hidden');
+                    } else {
+                        reingestBtn.textContent = '❌';
+                        alert('Reprocess failed: ' + (result.detail || 'Unknown error'));
+                    }
+                } catch (err) {
+                    reingestBtn.textContent = '❌';
+                    alert('Reprocess failed: ' + err.message);
+                }
+                setTimeout(() => {
+                    reingestBtn.disabled = false;
+                    reingestBtn.textContent = '🔄';
+                }, 2000);
             });
 
             return card;
@@ -823,9 +882,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             categoryList.innerHTML = data.categories.map(cat => `
-                <div class="category-item">
-                    <span>${cat}</span>
-                    <button class="delete-category-btn" data-category="${cat}">×</button>
+                <div class="category-item" data-category="${cat}">
+                    <span class="category-name">${cat}</span>
+                    <div class="category-actions">
+                        ${cat !== 'Uncategorized' ? `<button class="edit-category-btn" data-category="${cat}" title="Rename">✏️</button>` : ''}
+                        <button class="delete-category-btn" data-category="${cat}">×</button>
+                    </div>
                 </div>
             `).join('');
 
@@ -863,15 +925,55 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             });
+
+            // Add edit/rename handlers
+            categoryList.querySelectorAll('.edit-category-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const catName = btn.getAttribute('data-category');
+                    const newName = prompt(`Rename category "${catName}" to:`, catName);
+                    if (!newName || newName.trim() === '' || newName.trim() === catName) {
+                        return;
+                    }
+                    btn.disabled = true;
+                    btn.textContent = '...';
+                    try {
+                        const response = await fetch('/categories/rename', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ old_name: catName, new_name: newName.trim() })
+                        });
+                        const result = await response.json();
+                        if (response.ok) {
+                            alert(result.message || `Category renamed to "${newName.trim()}"`);
+                            loadCategoryList();
+                            loadFilters();
+                            loadLibrary();
+                        } else {
+                            alert('Failed to rename category: ' + (result.detail || 'Unknown error'));
+                            btn.disabled = false;
+                            btn.textContent = '✏️';
+                        }
+                    } catch (error) {
+                        console.error('Failed to rename category:', error);
+                        alert('Failed to rename category');
+                        btn.disabled = false;
+                        btn.textContent = '✏️';
+                    }
+                });
+            });
         } catch (error) {
             console.error('Failed to load categories:', error);
         }
     }
 
     // Video Category Edit Modal
+    const newCategoryInline = document.getElementById('newCategoryInline');
+    const addCategoryInlineBtn = document.getElementById('addCategoryInlineBtn');
+
     async function openVideoCategoryModal(video) {
         currentEditingVideo = video;
         editVideoTitle.textContent = video.title || 'Untitled';
+        if (newCategoryInline) newCategoryInline.value = '';
 
         try {
             const response = await fetch('/categories');
@@ -891,6 +993,50 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Failed to load categories for editing:', error);
         }
+    }
+
+    // Add category inline (in video category edit modal)
+    if (addCategoryInlineBtn) {
+        addCategoryInlineBtn.addEventListener('click', async () => {
+            const name = newCategoryInline.value.trim();
+            if (!name) return;
+
+            addCategoryInlineBtn.disabled = true;
+            addCategoryInlineBtn.textContent = '...';
+
+            try {
+                const response = await fetch('/categories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+
+                if (response.ok) {
+                    // Add the new category checkbox and check it
+                    const newCheckbox = document.createElement('label');
+                    newCheckbox.className = 'category-checkbox';
+                    newCheckbox.innerHTML = `<input type="checkbox" value="${name}" checked> ${name}`;
+                    videoCategoryCheckboxes.appendChild(newCheckbox);
+                    newCategoryInline.value = '';
+                    loadFilters(); // Update filter dropdowns
+                }
+            } catch (error) {
+                console.error('Failed to add category:', error);
+            } finally {
+                addCategoryInlineBtn.disabled = false;
+                addCategoryInlineBtn.textContent = 'Add';
+            }
+        });
+    }
+
+    // Allow Enter key to add category inline
+    if (newCategoryInline) {
+        newCategoryInline.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addCategoryInlineBtn.click();
+            }
+        });
     }
 
     closeVideoCategoryModal.addEventListener('click', () => {
