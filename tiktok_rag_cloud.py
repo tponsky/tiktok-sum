@@ -68,16 +68,36 @@ def get_urls_from_clipboard() -> List[str]:
 
 def download_audio(url: str, out_dir: str) -> tuple[str, dict]:
     """Download audio using yt-dlp and return WAV path + video metadata"""
+    # Set platform-specific headers for better compatibility
+    url_lower = url.lower()
+    
+    if 'tiktok.com' in url_lower:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+        }
+    elif 'youtube.com' in url_lower or 'youtu.be' in url_lower:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.youtube.com/",
+        }
+    elif 'twitter.com' in url_lower or 'x.com' in url_lower:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://twitter.com/",
+        }
+    else:
+        # Default headers for other platforms
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+    
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": os.path.join(out_dir, "%(id)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
-        # Add headers to bypass TikTok blocking
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://www.tiktok.com/",
-        },
+        "http_headers": headers,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -228,50 +248,44 @@ Title:"""
         return ""
 
 
-def auto_categorize(summary: str, title: str = "") -> str:
-    """Use GPT to automatically categorize a video based on its summary and title."""
-    prompt = f"""Based on the video title and summary below, assign ONE category/topic that best describes this content.
+def auto_categorize(summary: str, title: str = "", existing_categories: set = None) -> str:
+    """Use GPT to automatically categorize a video based on its summary and title.
+
+    If existing_categories is provided, only assigns from those categories.
+    Otherwise falls back to 'Uncategorized'.
+    """
+    # If we have existing categories, only use those
+    if existing_categories:
+        categories_list = ", ".join(sorted(existing_categories))
+        prompt = f"""Based on the video title and summary below, assign ONE category from this list that best describes this content.
 
 Title: {title}
 Summary: {summary}
 
-Choose from common categories like:
-- Fitness & Health
-- Cooking & Recipes
-- Beauty & Skincare
-- Fashion & Style
-- Finance & Money
-- Technology & Gadgets
-- Entertainment & Comedy
-- Education & Learning
-- Travel & Adventure
-- Relationships & Dating
-- Productivity & Self-Improvement
-- Music & Dance
-- Sports
-- Gaming
-- DIY & Crafts
-- Parenting & Family
-- Pets & Animals
-- News & Current Events
-- Science & Nature
-- Art & Design
+Available categories: {categories_list}
 
-Or create a new specific category if none of these fit well.
+You MUST choose one of the categories from the list above. If none fit well, respond with "Uncategorized".
 
-Respond with ONLY the category name, nothing else. Keep it short (1-3 words)."""
+Respond with ONLY the exact category name from the list, nothing else."""
+    else:
+        # No existing categories - use Uncategorized
+        return "Uncategorized"
 
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=20,
+            max_tokens=30,
             temperature=0.3,
         )
         category = resp.choices[0].message.content.strip()
         # Clean up the response - remove quotes, periods, etc.
         category = category.strip('"\'.,')
-        return category
+
+        # Verify it's in existing categories
+        if existing_categories and category in existing_categories:
+            return category
+        return "Uncategorized"
     except Exception as e:
         print(f"Auto-categorization error: {e}")
         return "Uncategorized"
@@ -289,6 +303,39 @@ def upsert_to_pinecone(vectors: List[dict]):
     index.upsert(vectors)
 
 
+def get_existing_categories(user_id: int = None) -> set:
+    """Fetch all existing categories for a user from Pinecone."""
+    try:
+        # Build filter for user_id
+        filter_dict = {}
+        if user_id is not None:
+            filter_dict["user_id"] = user_id
+
+        # Query with a dummy vector to get all videos
+        dummy_vector = [0.0] * 1536
+        results = index.query(
+            vector=dummy_vector,
+            top_k=10000,
+            include_metadata=True,
+            filter=filter_dict if filter_dict else None
+        )
+
+        categories = set()
+        for match in results.matches:
+            meta = match.metadata or {}
+            cats = meta.get("categories", meta.get("topic", ""))
+            if cats:
+                for cat in cats.split(","):
+                    cat = cat.strip()
+                    if cat and cat != "Uncategorized":
+                        categories.add(cat)
+
+        return categories
+    except Exception as e:
+        print(f"Error fetching existing categories: {e}")
+        return set()
+
+
 # -------- Main Pipeline -------- #
 
 def process_urls(urls: List[str], topic: str = "", user_id: int = None):
@@ -299,6 +346,11 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
         topic: Optional topic/category for organizing videos
         user_id: Optional user ID for per-user libraries (None = shared/public)
     """
+    # Fetch existing categories for this user (only once at the start)
+    existing_categories = get_existing_categories(user_id) if user_id else set()
+    if existing_categories:
+        print(f"Found {len(existing_categories)} existing categories for user")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         for url in urls:
             print("Processing:", url)
@@ -340,7 +392,7 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
             first_summary = summaries[0]["summary"] if summaries else ""
 
             if not video_topic and summaries:
-                video_topic = auto_categorize(first_summary, original_title)
+                video_topic = auto_categorize(first_summary, original_title, existing_categories)
                 print(f"Auto-categorized as: {video_topic}")
 
             # 4c. Extract key takeaway
