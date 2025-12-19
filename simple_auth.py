@@ -93,8 +93,14 @@ def get_db_connection():
         cur.execute("PRAGMA table_info(users)")
         columns = [col[1] for col in cur.fetchall()]
         if 'api_key' not in columns:
-            cur.execute("ALTER TABLE users ADD COLUMN api_key TEXT UNIQUE")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key);")
+            cur.execute("ALTER TABLE users ADD COLUMN api_key TEXT")
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key);")
+            # Generate API keys for existing users
+            cur.execute("SELECT id, email FROM users WHERE api_key IS NULL")
+            existing_users = cur.fetchall()
+            for u in existing_users:
+                new_key = secrets.token_urlsafe(32)
+                cur.execute("UPDATE users SET api_key = ? WHERE id = ?", (new_key, u['id']))
             conn.commit()
 
         # Create password_reset_tokens table
