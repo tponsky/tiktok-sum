@@ -513,7 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Global function to scroll to source
-    window.scrollToSource = function(sourceNum) {
+    window.scrollToSource = function (sourceNum) {
         const sourceCard = document.getElementById(`source-${sourceNum}`);
         if (sourceCard) {
             sourceCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -611,6 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card.className = 'library-card';
 
             const uploadDate = video.upload_date ? formatDate(video.upload_date) : '';
+            const addedDate = video.ingested_at ? formatTimestamp(video.ingested_at) : '';
             const duration = video.duration ? formatDuration(video.duration) : '';
             const keyTakeaway = video.key_takeaway || '';
             const transcript = video.transcript || '';
@@ -631,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <p class="library-author">@${video.author || 'Unknown'}</p>
                 <div class="library-meta">
-                    ${uploadDate ? `<span>${uploadDate}</span>` : ''}
+                    ${addedDate ? `<span title="Date Added">Added: ${addedDate}</span>` : (uploadDate ? `span title="Upload Date">Posted: ${uploadDate}</span>` : '')}
                     ${duration ? `<span>${duration}</span>` : ''}
                 </div>
                 ${categories.length > 1 ? `<div class="multi-category-badges">${categories.map(c => `<span class="small-badge">${c}</span>`).join('')}</div>` : ''}
@@ -815,7 +816,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Global function to scroll to category
-    window.scrollToCategory = function(topic) {
+    window.scrollToCategory = function (topic) {
         const section = document.getElementById(`category-${encodeURIComponent(topic)}`);
         if (section) {
             section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -828,6 +829,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const year = dateStr.substring(0, 4);
         const month = dateStr.substring(4, 6);
         const day = dateStr.substring(6, 8);
+        return `${month}/${day}/${year}`;
+    }
+
+    function formatTimestamp(unixSeconds) {
+        if (!unixSeconds) return '';
+        const date = new Date(unixSeconds * 1000);
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const year = date.getFullYear();
         return `${month}/${day}/${year}`;
     }
 
