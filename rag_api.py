@@ -1409,7 +1409,12 @@ def get_all_categories():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "message": "TikTok RAG API running!"}
+    return {
+        "status": "ok", 
+        "message": "TikTok RAG API running!",
+        "version": "1.0.2",
+        "last_update": "2025-12-19T13:30Z"
+    }
 
 
 @app.get("/test-route")
