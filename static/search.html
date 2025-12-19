@@ -74,7 +74,8 @@
         <div id="ingest-tab" class="tab-content hidden">
             <div class="ingest-box">
                 <h3>Add New Video</h3>
-                <input type="text" id="ingestInput" placeholder="Paste video URL (TikTok, YouTube, Instagram, Twitter...)">
+                <input type="text" id="ingestInput"
+                    placeholder="Paste video URL (TikTok, YouTube, Instagram, Twitter...)">
                 <input type="text" id="ingestTopic" placeholder="Topic/Category (optional)">
                 <button id="ingestBtn">Add Video</button>
                 <div id="ingestStatus" class="hidden"></div>
@@ -84,7 +85,8 @@
         <div id="bulk-tab" class="tab-content hidden">
             <div class="ingest-box">
                 <h3>Bulk Upload Videos</h3>
-                <p class="help-text">Paste multiple video URLs, one per line (max 50). Supports TikTok, YouTube, Instagram, Twitter/X, Facebook, Vimeo, Reddit</p>
+                <p class="help-text">Paste multiple video URLs, one per line (max 50). Supports TikTok, YouTube,
+                    Instagram, Twitter/X, Facebook, Vimeo, Reddit</p>
                 <textarea id="bulkInput" placeholder="https://www.tiktok.com/@user/video/123
 https://www.youtube.com/watch?v=abc123
 https://www.instagram.com/reel/xyz"></textarea>
@@ -155,7 +157,8 @@ https://www.instagram.com/reel/xyz"></textarea>
                     <p>This key connects the shortcut to your account:</p>
                     <div class="api-key-box">
                         <div class="api-key-display">
-                            <input type="text" id="apiKeyDisplay" readonly placeholder="Click 'Generate' to create your key">
+                            <input type="text" id="apiKeyDisplay" readonly
+                                placeholder="Click 'Generate' to create your key">
                             <button id="copyApiKey" class="copy-btn" disabled>Copy</button>
                         </div>
                         <div class="api-key-actions">
@@ -174,7 +177,8 @@ https://www.instagram.com/reel/xyz"></textarea>
                     </div>
                     <p>Get the iOS Shortcut on your iPhone:</p>
                     <div class="download-section">
-                        <a href="https://www.icloud.com/shortcuts/fd9bd71da15a4da79518ae554f9f068f" class="download-shortcut-btn-inline" target="_blank">
+                        <a href="https://www.icloud.com/shortcuts/fd9bd71da15a4da79518ae554f9f068f"
+                            class="download-shortcut-btn-inline" target="_blank">
                             <span class="apple-icon"></span> Download Shortcut
                         </a>
                         <p class="download-hint">Opens in Safari → Tap "Get Shortcut" → "Add Shortcut"</p>
@@ -191,19 +195,24 @@ https://www.instagram.com/reel/xyz"></textarea>
                         <div class="instruction-step">
                             <p><strong>a.</strong> Open the <strong>Shortcuts</strong> app on your iPhone</p>
                             <div class="screenshot-placeholder screenshot-small" data-img="shortcuts-app.png">
-                                <img src="/static/screenshots/shortcuts-app.png" alt="Open Shortcuts app" onerror="this.parentElement.classList.add('no-image')">
+                                <img src="/static/screenshots/shortcuts-app.png" alt="Open Shortcuts app"
+                                    onerror="this.parentElement.classList.add('no-image')">
                             </div>
                         </div>
                         <div class="instruction-step">
-                            <p><strong>b.</strong> Find <strong>"Video Library"</strong> and tap the <strong>⋯</strong> button to edit</p>
+                            <p><strong>b.</strong> Find <strong>"Video Library"</strong> and tap the <strong>⋯</strong>
+                                button to edit</p>
                             <div class="screenshot-placeholder" data-img="edit-shortcut.png">
-                                <img src="/static/screenshots/edit-shortcut.png" alt="Edit the shortcut" onerror="this.parentElement.classList.add('no-image')">
+                                <img src="/static/screenshots/edit-shortcut.png" alt="Edit the shortcut"
+                                    onerror="this.parentElement.classList.add('no-image')">
                             </div>
                         </div>
                         <div class="instruction-step">
-                            <p><strong>c.</strong> Find the <code>api_key</code> field and replace <code>PASTE_YOUR_API_KEY_HERE</code> with your key</p>
+                            <p><strong>c.</strong> Find the <code>api_key</code> field and replace
+                                <code>PASTE_YOUR_API_KEY_HERE</code> with your key</p>
                             <div class="screenshot-placeholder" data-img="paste-key.png">
-                                <img src="/static/screenshots/paste-key.png" alt="Paste your API key" onerror="this.parentElement.classList.add('no-image')">
+                                <img src="/static/screenshots/paste-key.png" alt="Paste your API key"
+                                    onerror="this.parentElement.classList.add('no-image')">
                             </div>
                         </div>
                         <div class="instruction-step">
@@ -227,7 +236,8 @@ https://www.instagram.com/reel/xyz"></textarea>
                                 <li>The video will be transcribed and added to your library!</li>
                             </ol>
                             <div class="screenshot-placeholder" data-img="share-menu.png">
-                                <img src="/static/screenshots/share-menu.png" alt="Share menu example" onerror="this.parentElement.classList.add('no-image')">
+                                <img src="/static/screenshots/share-menu.png" alt="Share menu example"
+                                    onerror="this.parentElement.classList.add('no-image')">
                             </div>
                         </div>
                     </div>
@@ -311,7 +321,8 @@ https://www.instagram.com/reel/xyz"></textarea>
                         </div>
                         <div class="edit-field">
                             <label class="edit-label" for="editKeyTakeawayInput">Key Takeaway</label>
-                            <input type="text" id="editKeyTakeawayInput" class="edit-input" placeholder="The main insight or tip...">
+                            <input type="text" id="editKeyTakeawayInput" class="edit-input"
+                                placeholder="The main insight or tip...">
                         </div>
                         <div class="edit-field">
                             <label class="edit-label" for="editSummaryInput">Summary</label>

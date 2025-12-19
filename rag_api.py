@@ -702,7 +702,7 @@ async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTa
         # Fallback if URL doesn't match tiktok specific regex but is a URL
         url_match = re.search(r'https?://\S+', raw_url)
     
-    url = url_match.group(0) if url_match else raw_url
+    url = url_match.group(0).strip() if url_match else raw_url.strip()
 
     # Authenticate via API key
     user = simple_auth.get_user_by_api_key(api_key)
@@ -713,6 +713,16 @@ async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTa
 
     user_id = user['id']
     balance = user['balance_usd']
+
+    # Validate URL
+    url_lower = url.lower()
+    supported_patterns = [
+        'tiktok.com', 'youtube.com', 'youtu.be', 'twitter.com', 'x.com',
+        'vimeo.com', 'reddit.com', 'twitch.tv', 'instagram.com', 'instagr.am', 'facebook.com', 'fb.watch'
+    ]
+    is_supported = any(pattern in url_lower for pattern in supported_patterns)
+    # We do NOT error on unsupported platforms for now, to be permissive like before, 
+    # but we strip/clean the URL.
 
     # Check balance
     if balance < COST_PER_INGEST:
@@ -726,6 +736,9 @@ async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTa
     simple_auth.log_usage(user_id, "shortcut_ingest", cost_usd=COST_PER_INGEST, details=url[:100])
 
     # Process video
+    print(f"=== SHORTCUT INGEST DEBUG ===")
+    print(f"User: id={user_id}, email={user.get('email', 'unknown')}")
+    print(f"URL: {url}")
     background_tasks.add_task(process_urls, [url], topic, user_id)
 
     new_balance = simple_auth.get_user_balance(user_id)
@@ -807,6 +820,9 @@ def get_library(
     try:
         # Get user_id (0 if not authenticated)
         current_user_id = user['user_id'] if user else 0
+        print(f"=== LIBRARY DEBUG ===")
+        print(f"User: {user}")
+        print(f"current_user_id: {current_user_id} (type: {type(current_user_id).__name__})")
 
         # Build filter - show user's videos AND shared videos (user_id=0)
         filter_dict = {"chunk_index": {"$eq": 0}}
@@ -821,12 +837,14 @@ def get_library(
 
         # Query for user's own videos
         user_filter = {**filter_dict, "user_id": {"$eq": current_user_id}}
+        print(f"User filter: {user_filter}")
         user_results = index.query(
             vector=dummy_vector,
             top_k=limit,
             include_metadata=True,
             filter=user_filter
         )
+        print(f"User-specific results: {len(user_results.matches)} videos found")
 
         # Query for shared/public videos (user_id=0 or missing)
         # Note: Pre-existing videos won't have user_id field, so we also get those
@@ -1213,6 +1231,95 @@ def delete_category(name: str):
             print(f"Error updating video {source_url}: {e}")
 
     return {"status": "success", "message": f"Category '{name}' removed. {reassigned_count} video(s) reassigned."}
+
+
+class RenameCategoryRequest(BaseModel):
+    old_name: str
+    new_name: str
+
+
+@app.post("/categories/rename")
+def rename_category(req: RenameCategoryRequest):
+    """Rename a category and update all videos that have it."""
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    name = req.old_name.strip()
+    new_name = req.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="New category name cannot be empty")
+
+    if name == "Uncategorized":
+        raise HTTPException(status_code=400, detail="Cannot rename 'Uncategorized'")
+
+    if name == new_name:
+        return {"status": "success", "message": "Category name unchanged", "updated_count": 0}
+
+    print(f"=== RENAME CATEGORY REQUEST ===")
+    print(f"Renaming '{name}' to '{new_name}'")
+
+    # Update custom_categories set
+    if name in custom_categories:
+        custom_categories.discard(name)
+    custom_categories.add(new_name)
+
+    # Query Pinecone directly for all videos (chunk_index=0)
+    dummy_vector = [0.0] * 1536
+    results = index.query(
+        vector=dummy_vector,
+        top_k=10000,
+        include_metadata=True,
+        filter={"chunk_index": {"$eq": 0}}
+    )
+
+    updated_count = 0
+    processed_sources = set()
+
+    for match in results.matches:
+        meta = match.metadata or {}
+        cats_str = meta.get("categories", meta.get("topic", ""))
+        cats_list = [c.strip() for c in cats_str.split(",") if c.strip()] if cats_str else []
+
+        if name in cats_list:
+            source_url = meta.get("source", "")
+            if not source_url or source_url in processed_sources:
+                continue
+            processed_sources.add(source_url)
+
+            # Replace old category name with new one
+            new_cats = [new_name if c == name else c for c in cats_list]
+            new_categories_str = ",".join(new_cats)
+            new_topic = new_cats[0] if new_cats else "Uncategorized"
+
+            try:
+                # Find all chunks for this video
+                chunk_results = index.query(
+                    vector=dummy_vector,
+                    top_k=50,
+                    include_metadata=True,
+                    filter={"source": {"$eq": source_url}}
+                )
+
+                for chunk_match in chunk_results.matches:
+                    index.update(
+                        id=chunk_match.id,
+                        set_metadata={
+                            "categories": new_categories_str,
+                            "topic": new_topic
+                        }
+                    )
+
+                updated_count += 1
+                print(f"Updated video: {meta.get('title', 'Unknown')[:50]}")
+
+            except Exception as e:
+                print(f"Error updating video {source_url}: {e}")
+
+    return {
+        "status": "success",
+        "message": f"Category renamed from '{name}' to '{new_name}'. {updated_count} video(s) updated.",
+        "updated_count": updated_count
+    }
 
 
 def reassign_videos_from_category(category_to_remove: str) -> int:
@@ -1983,3 +2090,155 @@ async def transfer_all_videos(from_user_id: int, user: dict = Depends(require_au
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to transfer videos: {str(e)}")
+
+
+# ============================================================================
+# Video Management Endpoints (Delete / Re-ingest)
+# ============================================================================
+
+class DeleteVideoRequest(BaseModel):
+    video_id: str
+
+
+class ReingestVideoRequest(BaseModel):
+    video_id: str
+
+
+@app.post("/video/delete")
+async def delete_video(req: DeleteVideoRequest, user: dict = Depends(require_auth)):
+    """Delete a video and all its chunks from the library."""
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    try:
+        # Fetch the video to get its source URL and verify ownership
+        result = index.fetch(ids=[req.video_id])
+        if not result.vectors or req.video_id not in result.vectors:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        video_meta = result.vectors[req.video_id].metadata
+        source_url = video_meta.get("source", "")
+        video_user_id = video_meta.get("user_id", 0)
+
+        # Check ownership (user can only delete their own videos)
+        if video_user_id != 0 and video_user_id != user['user_id']:
+            raise HTTPException(status_code=403, detail="You can only delete your own videos")
+
+        if not source_url:
+            # No source URL, just delete this one vector
+            index.delete(ids=[req.video_id])
+            return {"status": "success", "message": "Video deleted", "deleted_count": 1}
+
+        # Find all chunks for this video by source URL
+        dummy_vector = [0.0] * 1536
+        chunk_results = index.query(
+            vector=dummy_vector,
+            top_k=100,
+            include_metadata=True,
+            filter={"source": {"$eq": source_url}}
+        )
+
+        # Also try fetching by ID pattern (timestamp_0, timestamp_1, etc.)
+        all_chunk_ids = set()
+        for match in chunk_results.matches:
+            all_chunk_ids.add(match.id)
+
+        base_id = req.video_id.rsplit("_", 1)[0] if "_" in req.video_id else req.video_id
+        potential_ids = [f"{base_id}_{i}" for i in range(20)]
+        fetch_result = index.fetch(ids=potential_ids)
+        if fetch_result.vectors:
+            for vid in fetch_result.vectors:
+                all_chunk_ids.add(vid)
+
+        # Delete all chunks
+        if all_chunk_ids:
+            index.delete(ids=list(all_chunk_ids))
+
+        return {
+            "status": "success",
+            "message": f"Deleted video and {len(all_chunk_ids)} chunks",
+            "deleted_count": len(all_chunk_ids)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete video: {str(e)}")
+
+
+@app.post("/video/reingest")
+async def reingest_video(req: ReingestVideoRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
+    """Re-ingest a video: delete existing data and re-process from original URL."""
+    if not index:
+        raise HTTPException(status_code=500, detail="Pinecone index not initialized")
+
+    # Check balance
+    user_id = user['user_id']
+    balance = simple_auth.get_user_balance(user_id)
+    if balance < COST_PER_INGEST:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Current: ${balance:.2f}, Required: ${COST_PER_INGEST:.2f}"
+        )
+
+    try:
+        # Fetch the video to get its source URL
+        result = index.fetch(ids=[req.video_id])
+        if not result.vectors or req.video_id not in result.vectors:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        video_meta = result.vectors[req.video_id].metadata
+        source_url = video_meta.get("source", "")
+        video_user_id = video_meta.get("user_id", 0)
+        topic = video_meta.get("topic", "")
+
+        # Check ownership
+        if video_user_id != 0 and video_user_id != user_id:
+            raise HTTPException(status_code=403, detail="You can only re-ingest your own videos")
+
+        if not source_url:
+            raise HTTPException(status_code=400, detail="Video has no source URL to re-ingest")
+
+        # Find and delete all existing chunks for this video
+        dummy_vector = [0.0] * 1536
+        chunk_results = index.query(
+            vector=dummy_vector,
+            top_k=100,
+            include_metadata=True,
+            filter={"source": {"$eq": source_url}}
+        )
+
+        all_chunk_ids = set()
+        for match in chunk_results.matches:
+            all_chunk_ids.add(match.id)
+
+        base_id = req.video_id.rsplit("_", 1)[0] if "_" in req.video_id else req.video_id
+        potential_ids = [f"{base_id}_{i}" for i in range(20)]
+        fetch_result = index.fetch(ids=potential_ids)
+        if fetch_result.vectors:
+            for vid in fetch_result.vectors:
+                all_chunk_ids.add(vid)
+
+        # Delete existing chunks
+        if all_chunk_ids:
+            index.delete(ids=list(all_chunk_ids))
+            print(f"Deleted {len(all_chunk_ids)} existing chunks for re-ingest")
+
+        # Deduct cost and log usage
+        simple_auth.deduct_from_balance(user_id, COST_PER_INGEST)
+        simple_auth.log_usage(user_id, "reingest", cost_usd=COST_PER_INGEST, details=source_url[:100])
+
+        # Re-process the video in background
+        background_tasks.add_task(process_urls, [source_url], topic, user_id)
+
+        return {
+            "status": "processing_started",
+            "message": f"Re-ingesting video from {source_url}",
+            "source_url": source_url,
+            "deleted_chunks": len(all_chunk_ids)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to re-ingest video: {str(e)}")
