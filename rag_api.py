@@ -1412,6 +1412,11 @@ def health():
     return {"status": "ok", "message": "TikTok RAG API running!"}
 
 
+@app.get("/test-route")
+def test_route():
+    return {"message": "Test route is working!"}
+
+
 class ReprocessRequest(BaseModel):
     video_id: str
 
