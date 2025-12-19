@@ -3,7 +3,7 @@ uvicorn[standard]==0.30.1
 openai==2.8.1
 pinecone==8.0.0
 python-dotenv==1.0.1
-yt-dlp==2025.11.12
+yt-dlp
 pyperclip==1.11.0
 pydantic==2.8.2
 # Auth dependencies

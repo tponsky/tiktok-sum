@@ -361,7 +361,9 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
             except Exception as e:
                 print("Download error:", e)
                 if user_id:
-                    simple_auth.log_usage(user_id, "ingest_error", details=f"Download failed for {url}: {str(e)}")
+                    # Refund the user if download fails
+                    simple_auth.add_funds(user_id, 0.03)
+                    simple_auth.log_usage(user_id, "ingest_error", details=f"Download failed for {url}: {str(e)} (Refunded $0.03)")
                 continue
 
             # 2. Transcribe
