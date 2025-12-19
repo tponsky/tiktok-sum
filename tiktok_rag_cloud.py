@@ -362,7 +362,7 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
                 print("Download error:", e)
                 if user_id:
                     # Refund the user if download fails
-                    simple_auth.add_funds(user_id, 0.03)
+                    simple_auth.add_to_balance(user_id, 0.03)
                     simple_auth.log_usage(user_id, "ingest_error", details=f"Download failed for {url}: {str(e)} (Refunded $0.03)")
                 continue
 
