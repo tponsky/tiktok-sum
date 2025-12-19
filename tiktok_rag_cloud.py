@@ -86,6 +86,11 @@ def download_audio(url: str, out_dir: str) -> tuple[str, dict]:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://twitter.com/",
         }
+    elif 'instagram.com' in url_lower:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.instagram.com/",
+        }
     else:
         # Default headers for other platforms
         headers = {
@@ -99,6 +104,14 @@ def download_audio(url: str, out_dir: str) -> tuple[str, dict]:
         "no_warnings": True,
         "http_headers": headers,
     }
+
+    if 'instagram.com' in url_lower:
+        ydl_opts['extractor_args'] = {
+            'instagram': {
+                'client': ['android']
+            }
+        }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         fname = ydl.prepare_filename(info)
