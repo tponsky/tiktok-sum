@@ -1,5 +1,6 @@
 import os
 from typing import List, Optional
+import re
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Request
 from fastapi.staticfiles import StaticFiles
@@ -686,13 +687,22 @@ async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTa
 
     # Get API key from body or header
     api_key = data.get("api_key") or request.headers.get("X-API-Key")
-    url = data.get("url")
+    raw_url = data.get("url")
     topic = data.get("topic", "")
 
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing API key")
-    if not url:
+    if not raw_url:
         raise HTTPException(status_code=400, detail="Missing video URL")
+
+    # Extract clean URL from potential caption text
+    from tiktok_rag_cloud import URL_REGEX
+    url_match = URL_REGEX.search(raw_url)
+    if not url_match:
+        # Fallback if URL doesn't match tiktok specific regex but is a URL
+        url_match = re.search(r'https?://\S+', raw_url)
+    
+    url = url_match.group(0) if url_match else raw_url
 
     # Authenticate via API key
     user = simple_auth.get_user_by_api_key(api_key)
@@ -1840,6 +1850,33 @@ async def stripe_webhook(request: Request):
             print(f"Added ${amount_usd:.2f} to user {user_id}'s balance")
 
     return {"status": "success"}
+
+
+@app.get("/api/debug/status")
+async def debug_status(user: dict = Depends(require_auth)):
+    """Debug endpoint to check logs and balance."""
+    user_id = user['user_id']
+    usage = simple_auth.get_user_usage(user_id)
+    
+    # Format usage for readability
+    formatted_usage = []
+    for row in usage:
+        formatted_usage.append({
+            "timestamp": row['timestamp'],
+            "action": row['action'],
+            "cost": row['cost_usd'],
+            "details": row['details']
+        })
+        
+    return {
+        "user_id": user_id,
+        "email": user['email'],
+        "balance": simple_auth.get_user_balance(user_id),
+        "recent_usage": formatted_usage,
+        "openai_configured": OPENAI_API_KEY is not None,
+        "pinecone_configured": PINECONE_API_KEY is not None,
+        "env_app_url": APP_URL
+    }
 
 
 # ============================================================================

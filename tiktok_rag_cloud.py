@@ -20,6 +20,7 @@ from typing import List
 import pyperclip
 import yt_dlp
 from dotenv import load_dotenv
+import simple_auth
 
 # --- Load ENV ---
 load_dotenv()
@@ -104,7 +105,7 @@ def transcribe_with_openai(audio_path: str) -> str:
     """Transcribe audio with GPT-4o-mini-transcribe"""
     with open(audio_path, "rb") as f:
         resp = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
+            model="whisper-1",
             file=f
         )
     return resp.text
@@ -307,6 +308,8 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
                 wav, video_metadata = download_audio(url, tmpdir)
             except Exception as e:
                 print("Download error:", e)
+                if user_id:
+                    simple_auth.log_usage(user_id, "ingest_error", details=f"Download failed for {url}: {str(e)}")
                 continue
 
             # 2. Transcribe
@@ -314,6 +317,8 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
                 transcript = transcribe_with_openai(wav)
             except Exception as e:
                 print("Transcription error:", e)
+                if user_id:
+                    simple_auth.log_usage(user_id, "ingest_error", details=f"Transcription failed for {url}: {str(e)}")
                 continue
 
             # 3. Chunk
@@ -396,6 +401,8 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
 
             upsert_to_pinecone(vectors)
             print(f"Upserted {len(vectors)} vectors for {url}")
+            if user_id:
+                simple_auth.log_usage(user_id, "ingest_success", details=f"Successfully ingested {url}")
 
 
 import argparse
