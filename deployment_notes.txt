@@ -1,0 +1,32 @@
+# VidRecall Deployment Notes - December 19, 2025
+
+## 1. Rebranding: VidRecall
+- **Description**: The application has been fully rebranded from "Video RAG Search" to "VidRecall".
+- **Changes**:
+  - Updated UI: `search.html`, `login.html`, `signup.html`, `forgot-password.html`, `reset-password.html`, `index.html`.
+  - Updated API Metadata: `rag_api.py` (FastAPI title changed to "VidRecall API").
+  - Updated Backend: `email_service.py`, `simple_auth.py`, `tiktok_rag_cloud.py`.
+  - Updated Shared Link Metadata: Added OpenGraph tags for better social sharing previews.
+  - Updated Documentation: `README.md` and `deploy.sh`.
+
+## 2. Email Service Fix
+- **Issue**: Password reset emails were not being delivered.
+- **Root Cause**: Missing `RESEND_API_KEY` and `FROM_EMAIL` in the production `.env` file.
+- **Resolution**: 
+  - Updated remote `.env` with the correct credentials.
+  - Restarted the Docker container on the production server.
+  - Verified delivery via logs and user confirmation.
+- **Current Sender**: `noreply@staycurrentapp.com`
+
+## 3. Credit System
+- **Verification**: Confirmed that the credit system correctly blocks searches and video additions when the balance hits zero.
+- **Cost Structure**:
+  - Ingest: $0.03 per video.
+  - Search: $0.005 per search.
+- **Initial Credit**: New users start with $2.00 free credit.
+
+## 4. GitHub Status
+- **Repository**: All changes, including the branding updates and minor bug fixes (like the syntax error in `simple_auth.py`), have been committed and pushed to the main branch.
+
+---
+**Verified URL**: https://tiktoksum.staycurrentapp.com
