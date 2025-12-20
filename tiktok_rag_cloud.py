@@ -1,8 +1,8 @@
 """
 tiktok_rag_cloud.py
 
-Cloud pipeline:
-- Reads TikTok links from clipboard
+Cloud pipeline for VidRecall:
+- Reads video links from clipboard
 - Downloads audio via yt-dlp
 - Converts audio to WAV (ffmpeg)
 - Sends to OpenAI speech-to-text

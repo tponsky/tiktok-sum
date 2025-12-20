@@ -63,7 +63,7 @@ except Exception as e:
 
 
 # ----------------- FastAPI App --------------------
-app = FastAPI(title="TikTok RAG API", version="1.0")
+app = FastAPI(title="VidRecall API", version="1.0")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")

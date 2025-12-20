@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# TikTok RAG Video Search Deployment Script
+# VidRecall Video Search Deployment Script
 # This script deploys to your production server
 
 set -e
 
 echo "=========================================="
-echo "TikTok Video RAG Deployment"
+echo "VidRecall Deployment"
 echo "=========================================="
 echo ""
 

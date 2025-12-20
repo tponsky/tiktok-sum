@@ -1,6 +1,5 @@
-"""
 Simple JWT-based authentication using SQLite
-For TikTok Video RAG Search
+For VidRecall
 """
 import os
 import sqlite3
