@@ -1,3 +1,4 @@
+"""
 Simple JWT-based authentication using SQLite
 For VidRecall
 """
