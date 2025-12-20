@@ -13,7 +13,7 @@ if RESEND_API_KEY:
 
 # Default sender - use your verified domain
 FROM_EMAIL = os.getenv("FROM_EMAIL", "noreply@staycurrentapp.com")
-APP_NAME = os.getenv("APP_NAME", "Video RAG Search")
+APP_NAME = os.getenv("APP_NAME", "VidRecall")
 
 
 def is_configured() -> bool:

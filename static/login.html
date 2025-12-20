@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In - Video RAG Search</title>
+    <title>Sign In - VidRecall</title>
     <style>
         :root {
             --primary-color: #fe2c55;
@@ -148,7 +149,9 @@
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         .auth-footer {
@@ -174,12 +177,13 @@
         }
     </style>
 </head>
+
 <body>
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
                 <h1>Welcome back</h1>
-                <p>Sign in to your Video RAG Search account</p>
+                <p>Sign in to your VidRecall account</p>
             </div>
 
             <div id="error-container"></div>
@@ -187,26 +191,14 @@
             <form id="login-form">
                 <div class="form-group">
                     <label for="email">Email</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        required
-                        autocomplete="email"
-                        placeholder="you@example.com"
-                    >
+                    <input type="email" id="email" name="email" required autocomplete="email"
+                        placeholder="you@example.com">
                 </div>
 
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input
-                        type="password"
-                        id="password"
-                        name="password"
-                        required
-                        autocomplete="current-password"
-                        placeholder="Enter your password"
-                    >
+                    <input type="password" id="password" name="password" required autocomplete="current-password"
+                        placeholder="Enter your password">
                 </div>
 
                 <button type="submit" class="btn-primary" id="submit-btn">
@@ -283,4 +275,5 @@
         });
     </script>
 </body>
+
 </html>

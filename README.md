@@ -1,6 +1,6 @@
-# TikTok RAG App
+# VidRecall
 
-A simple RAG (Retrieval-Augmented Generation) application that allows you to search through TikTok video summaries using natural language.
+A simple RAG (Retrieval-Augmented Generation) application that allows you to search through your video library using natural language.
 
 ## Prerequisites
 
