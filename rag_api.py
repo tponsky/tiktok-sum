@@ -1933,38 +1933,88 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
+    print(f"[WEBHOOK] Received webhook, signature present: {sig_header is not None}")
+
     if not STRIPE_WEBHOOK_SECRET:
+        print("[WEBHOOK ERROR] STRIPE_WEBHOOK_SECRET not configured")
         raise HTTPException(status_code=500, detail="Webhook secret not configured")
 
     try:
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-    except ValueError:
+        print(f"[WEBHOOK] Event verified, type: {event['type']}")
+    except ValueError as e:
+        print(f"[WEBHOOK ERROR] Invalid payload: {e}")
         raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
+    except stripe.error.SignatureVerificationError as e:
+        print(f"[WEBHOOK ERROR] Invalid signature: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     # Handle checkout.session.completed event
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        user_id = int(session["metadata"].get("user_id"))
+        session_id = session.get("id", "unknown")
+        print(f"[WEBHOOK] Processing checkout.session.completed for session: {session_id}")
+        print(f"[WEBHOOK] Session metadata: {session.get('metadata', {})}")
         
-        # Use amount_total from session for security (source of truth), convert cents to dollars
-        amount_usd = float(session.get("amount_total", 0)) / 100.0
-
-        if user_id and amount_usd > 0:
-            # Add funds to user's balance
-            simple_auth.add_to_balance(user_id, amount_usd)
+        try:
+            # Safely extract user_id from metadata
+            user_id_str = session.get("metadata", {}).get("user_id")
+            if not user_id_str:
+                print(f"[WEBHOOK ERROR] No user_id in metadata for session {session_id}")
+                # Try to find user by customer email as fallback
+                customer_email = session.get("customer_details", {}).get("email")
+                if customer_email:
+                    print(f"[WEBHOOK] Attempting fallback lookup by email: {customer_email}")
+                    user = simple_auth.get_user_by_email(customer_email)
+                    if user:
+                        user_id = user['id']
+                        print(f"[WEBHOOK] Found user {user_id} by email fallback")
+                    else:
+                        print(f"[WEBHOOK ERROR] No user found for email {customer_email}")
+                        return {"status": "error", "message": "User not found"}
+                else:
+                    return {"status": "error", "message": "No user_id in metadata and no email available"}
+            else:
+                user_id = int(user_id_str)
             
-            # Log the deposit (cost_usd=0 because it's a credit, not spending)
-            simple_auth.log_usage(
-                user_id, 
-                "deposit", 
-                cost_usd=0.0, 
-                details=f"Stripe Deposit: ${amount_usd:.2f}"
-            )
-            print(f"Added ${amount_usd:.2f} to user {user_id}'s balance")
+            # Use amount_total from session for security (source of truth), convert cents to dollars
+            amount_usd = float(session.get("amount_total", 0)) / 100.0
+            print(f"[WEBHOOK] user_id={user_id}, amount_usd=${amount_usd:.2f}")
+
+            if user_id and amount_usd > 0:
+                # Get balance before
+                balance_before = simple_auth.get_user_balance(user_id)
+                print(f"[WEBHOOK] Balance before: ${balance_before:.2f}")
+                
+                # Add funds to user's balance
+                simple_auth.add_to_balance(user_id, amount_usd)
+                
+                # Get balance after to confirm
+                balance_after = simple_auth.get_user_balance(user_id)
+                print(f"[WEBHOOK] Balance after: ${balance_after:.2f}")
+                
+                # Log the deposit (cost_usd=0 because it's a credit, not spending)
+                simple_auth.log_usage(
+                    user_id, 
+                    "deposit", 
+                    cost_usd=0.0, 
+                    details=f"Stripe Deposit: ${amount_usd:.2f} (session: {session_id})"
+                )
+                print(f"[WEBHOOK SUCCESS] Added ${amount_usd:.2f} to user {user_id}'s balance (${balance_before:.2f} -> ${balance_after:.2f})")
+            else:
+                print(f"[WEBHOOK ERROR] Invalid user_id ({user_id}) or amount ({amount_usd})")
+                
+        except Exception as e:
+            print(f"[WEBHOOK ERROR] Exception processing payment: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't raise - return success to Stripe so they don't keep retrying
+            # But log the session ID for manual recovery
+            return {"status": "error", "message": str(e), "session_id": session_id}
+    else:
+        print(f"[WEBHOOK] Ignoring event type: {event['type']}")
 
     return {"status": "success"}
 
@@ -2090,6 +2140,183 @@ async def transfer_all_videos(from_user_id: int, user: dict = Depends(require_au
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to transfer videos: {str(e)}")
+
+
+class AdminCreditRequest(BaseModel):
+    email: str
+    amount_usd: float
+    reason: str = "Admin credit"
+
+
+@app.post("/api/admin/credit-user")
+async def admin_credit_user(req: AdminCreditRequest, user: dict = Depends(require_auth)):
+    """Manually credit a user's balance (admin only).
+    Use this for webhook failures or refunds.
+    """
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Find the user by email
+    target_user = simple_auth.get_user_by_email(req.email)
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"User not found: {req.email}")
+    
+    target_user_id = target_user['id']
+    balance_before = simple_auth.get_user_balance(target_user_id)
+    
+    # Add the credit
+    simple_auth.add_to_balance(target_user_id, req.amount_usd)
+    
+    balance_after = simple_auth.get_user_balance(target_user_id)
+    
+    # Log the admin credit
+    simple_auth.log_usage(
+        target_user_id,
+        "admin_credit",
+        cost_usd=0.0,
+        details=f"Admin Credit: ${req.amount_usd:.2f} - {req.reason}"
+    )
+    
+    print(f"[ADMIN] Credited ${req.amount_usd:.2f} to {req.email} (user {target_user_id}). Balance: ${balance_before:.2f} -> ${balance_after:.2f}")
+    
+    return {
+        "status": "success",
+        "email": req.email,
+        "user_id": target_user_id,
+        "amount_credited": req.amount_usd,
+        "balance_before": balance_before,
+        "balance_after": balance_after,
+        "reason": req.reason
+    }
+
+
+class AdminDebitRequest(BaseModel):
+    email: str
+    amount_usd: float
+    reason: str = "Admin debit"
+
+
+@app.post("/api/admin/debit-user")
+async def admin_debit_user(req: AdminDebitRequest, user: dict = Depends(require_auth)):
+    """Manually debit (remove funds from) a user's balance (admin only).
+    Use this for refunds to your account or corrections.
+    """
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Find the user by email
+    target_user = simple_auth.get_user_by_email(req.email)
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"User not found: {req.email}")
+    
+    target_user_id = target_user['id']
+    balance_before = simple_auth.get_user_balance(target_user_id)
+    
+    # Check if user has enough balance
+    if balance_before < req.amount_usd:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient balance. User has ${balance_before:.2f}, trying to remove ${req.amount_usd:.2f}"
+        )
+    
+    # Remove the funds
+    simple_auth.deduct_from_balance(target_user_id, req.amount_usd)
+    
+    balance_after = simple_auth.get_user_balance(target_user_id)
+    
+    # Log the admin debit
+    simple_auth.log_usage(
+        target_user_id,
+        "admin_debit",
+        cost_usd=req.amount_usd,
+        details=f"Admin Debit: ${req.amount_usd:.2f} - {req.reason}"
+    )
+    
+    print(f"[ADMIN] Debited ${req.amount_usd:.2f} from {req.email} (user {target_user_id}). Balance: ${balance_before:.2f} -> ${balance_after:.2f}")
+    
+    return {
+        "status": "success",
+        "email": req.email,
+        "user_id": target_user_id,
+        "amount_debited": req.amount_usd,
+        "balance_before": balance_before,
+        "balance_after": balance_after,
+        "reason": req.reason
+    }
+
+
+@app.get("/api/admin/user-info")
+async def admin_get_user_info(email: str, user: dict = Depends(require_auth)):
+    """Get user info by email (admin only)."""
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    target_user = simple_auth.get_user_by_email(email)
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"User not found: {email}")
+    
+    # Convert sqlite3.Row to dict for easier access
+    user_dict = dict(target_user)
+    
+    return {
+        "user_id": user_dict.get('id'),
+        "email": user_dict.get('email'),
+        "balance_usd": user_dict.get('balance_usd', 0.0),
+        "stripe_customer_id": user_dict.get('stripe_customer_id'),
+        "is_active": user_dict.get('is_active', True),
+        "created_at": user_dict.get('created_at')
+    }
+
+
+@app.get("/api/admin/all-users")
+async def admin_get_all_users(user: dict = Depends(require_auth)):
+    """Get all users (admin only)."""
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users = simple_auth.get_all_users()
+    return users
+
+
+@app.get("/api/settings")
+async def get_public_settings():
+    """Get public app settings (no auth required)."""
+    support_email = simple_auth.get_setting("support_email", "support@staycurrentapp.com")
+    return {
+        "support_email": support_email
+    }
+
+
+class UpdateSettingRequest(BaseModel):
+    key: str
+    value: str
+
+
+@app.post("/api/admin/settings")
+async def update_setting(req: UpdateSettingRequest, user: dict = Depends(require_auth)):
+    """Update an app setting (admin only)."""
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Only allow certain settings to be updated
+    allowed_settings = ["support_email"]
+    if req.key not in allowed_settings:
+        raise HTTPException(status_code=400, detail=f"Setting '{req.key}' cannot be modified")
+    
+    simple_auth.set_setting(req.key, req.value)
+    print(f"[ADMIN] Updated setting '{req.key}' to '{req.value}'")
+    
+    return {"status": "success", "key": req.key, "value": req.value}
+
+
+@app.get("/api/admin/settings")
+async def get_all_settings(user: dict = Depends(require_auth)):
+    """Get all app settings (admin only)."""
+    if user['email'] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    settings = simple_auth.get_all_settings()
+    return settings
 
 
 # ============================================================================

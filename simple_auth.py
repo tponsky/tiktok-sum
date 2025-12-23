@@ -120,6 +120,20 @@ def get_db_connection():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_reset_token ON password_reset_tokens(token);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_reset_user_id ON password_reset_tokens(user_id);")
             conn.commit()
+
+        # Create app_settings table
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='app_settings'")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            # Set default support email
+            cur.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('support_email', 'tponsky@gmail.com')")
+            conn.commit()
     except Exception as e:
         print(f"Database migration error: {e}")
 
@@ -152,6 +166,19 @@ def get_user_by_id(user_id: int):
         return cur.fetchone()
     finally:
         conn.close()
+
+
+def get_all_users():
+    """Get all users (for admin panel)."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, email, balance_usd, stripe_customer_id, is_active, created_at FROM users ORDER BY id DESC")
+        rows = cur.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
 
 def create_user(email: str, password: str):
     conn = None
@@ -359,6 +386,52 @@ def get_stripe_customer_id(user_id: int) -> Optional[str]:
         cur.execute("SELECT stripe_customer_id FROM users WHERE id = ?", (user_id,))
         row = cur.fetchone()
         return row['stripe_customer_id'] if row else None
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# App Settings
+# ============================================================================
+
+def get_setting(key: str, default: str = "") -> str:
+    """Get an app setting by key."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row['value'] if row else default
+    finally:
+        conn.close()
+
+
+def set_setting(key: str, value: str):
+    """Set an app setting."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO app_settings (key, value, updated_at) 
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
+        """, (key, value, value))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_all_settings() -> dict:
+    """Get all app settings as a dictionary."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM app_settings")
+        rows = cur.fetchall()
+        return {row['key']: row['value'] for row in rows}
     finally:
         conn.close()
 

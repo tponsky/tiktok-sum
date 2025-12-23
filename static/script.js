@@ -52,6 +52,30 @@ document.addEventListener('DOMContentLoaded', () => {
             addFundsBtn.classList.remove('hidden');
             userBalance.classList.add('low-balance');
         }
+
+        // Show admin link for admin user
+        const adminLink = document.getElementById('adminLink');
+        if (adminLink && user.email === 'tponsky@gmail.com') {
+            adminLink.classList.remove('hidden');
+        }
+
+        // Load support email from settings
+        loadSupportEmail();
+    }
+
+    async function loadSupportEmail() {
+        try {
+            const response = await fetch('/api/settings');
+            if (response.ok) {
+                const settings = await response.json();
+                const supportLink = document.getElementById('supportLink');
+                if (supportLink && settings.support_email) {
+                    supportLink.href = `mailto:${settings.support_email}?subject=VidRecall Support Request`;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load settings:', e);
+        }
     }
 
     async function loadUsageInfo() {
