@@ -215,10 +215,14 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // Check for redirect parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            const redirectTo = urlParams.get('redirect') || '/';
+
             // Check if already logged in
             const token = localStorage.getItem('auth_token');
             if (token) {
-                window.location.href = '/';
+                window.location.href = redirectTo;
                 return;
             }
 
@@ -258,8 +262,12 @@
                         </div>
                     `;
 
+                    // Check for redirect parameter
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const redirectTo = urlParams.get('redirect') || '/';
+
                     setTimeout(() => {
-                        window.location.href = '/';
+                        window.location.href = redirectTo;
                     }, 1000);
 
                 } catch (error) {

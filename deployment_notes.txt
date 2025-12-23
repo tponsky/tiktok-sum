@@ -1,32 +1,82 @@
-# VidRecall Deployment Notes - December 19, 2025
+# VidRecall Deployment Notes - December 23, 2025
 
-## 1. Rebranding: VidRecall
-- **Description**: The application has been fully rebranded from "Video RAG Search" to "VidRecall".
-- **Changes**:
-  - Updated UI: `search.html`, `login.html`, `signup.html`, `forgot-password.html`, `reset-password.html`, `index.html`.
-  - Updated API Metadata: `rag_api.py` (FastAPI title changed to "VidRecall API").
-  - Updated Backend: `email_service.py`, `simple_auth.py`, `tiktok_rag_cloud.py`.
-  - Updated Shared Link Metadata: Added OpenGraph tags for better social sharing previews.
-  - Updated Documentation: `README.md` and `deploy.sh`.
+## Server Information
+- **URL**: https://tiktoksum.staycurrentapp.com
+- **Server**: GoDaddy VPS (72.167.132.33)
+- **User**: ponsky
+- **App Directory**: `/home/ponsky/tiktok-sum`
+- **Container**: `tiktok-rag` (Docker)
+- **Port**: 8080
 
-## 2. Email Service Fix
-- **Issue**: Password reset emails were not being delivered.
-- **Root Cause**: Missing `RESEND_API_KEY` and `FROM_EMAIL` in the production `.env` file.
-- **Resolution**: 
-  - Updated remote `.env` with the correct credentials.
-  - Restarted the Docker container on the production server.
-  - Verified delivery via logs and user confirmation.
-- **Current Sender**: `noreply@staycurrentapp.com`
+## Environment Variables (in .env)
+```
+OPENAI_API_KEY=sk-proj-...
+PINECONE_API_KEY=pcsk_...
+JWT_SECRET_KEY=<your-jwt-secret>
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+APP_URL=https://tiktoksum.staycurrentapp.com
+RESEND_API_KEY=<your-resend-key>
+```
 
-## 3. Credit System
-- **Verification**: Confirmed that the credit system correctly blocks searches and video additions when the balance hits zero.
-- **Cost Structure**:
-  - Ingest: $0.03 per video.
-  - Search: $0.005 per search.
-- **Initial Credit**: New users start with $2.00 free credit.
+## Admin Access
+- **Admin Panel**: https://tiktoksum.staycurrentapp.com/static/admin.html
+- **Admin Email**: tponsky@gmail.com
+- **Features**: Credit users, view all users, webhook status
 
-## 4. GitHub Status
-- **Repository**: All changes, including the branding updates and minor bug fixes (like the syntax error in `simple_auth.py`), have been committed and pushed to the main branch.
+## Stripe Configuration
+- **Webhook Endpoint**: https://tiktoksum.staycurrentapp.com/api/stripe/webhook
+- **Events**: checkout.session.completed
+- **Webhook Secret**: whsec_JAznV82y80LicgtHrpEnf6moP0jN5jII
+
+## Credit System
+- **Ingest Cost**: $0.03 per video
+- **Search Cost**: $0.005 per search
+- **Initial Credit**: $2.00 for new users
+- **Reload Amount**: $10.00
+
+## Deployment Commands
+```bash
+# SSH to server
+sshpass -p 'PhE@C1%5MAuv' ssh ponsky@72.167.132.33
+
+# Deploy (from /home/ponsky/tiktok-sum)
+./deploy.sh
+
+# View logs
+docker logs -f tiktok-rag
+
+# Monitor webhooks
+docker logs -f tiktok-rag | grep WEBHOOK
+
+# Restart container
+docker restart tiktok-rag
+```
+
+---
+
+## Changelog
+
+### December 23, 2025 - Stripe Webhook Fix
+- **Issue**: Stripe payments succeeded but balance not updated
+- **Root Cause**: Wrong STRIPE_WEBHOOK_SECRET (was using ragagent's secret instead of tiktoksum's)
+- **Fix**: 
+  - Updated STRIPE_WEBHOOK_SECRET to correct value
+  - Added extensive webhook logging for debugging
+  - Added email fallback lookup if user_id missing from metadata
+  - Added admin panel for manual credits
+- **Admin Endpoints Added**:
+  - `POST /api/admin/credit-user` - Manually credit a user
+  - `GET /api/admin/user-info?email=...` - Look up user info
+  - `GET /api/admin/all-users` - List all users
+
+### December 19, 2025 - Rebranding to VidRecall
+- Rebranded from "Video RAG Search" to "VidRecall"
+- Updated all UI pages and API metadata
+
+### December 19, 2025 - Email Service Fix
+- Fixed password reset emails not being delivered
+- Added RESEND_API_KEY to production .env
 
 ---
 **Verified URL**: https://tiktoksum.staycurrentapp.com
