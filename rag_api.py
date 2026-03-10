@@ -832,15 +832,19 @@ def get_library(
         if author:
             filter_dict["author"] = {"$eq": author}
 
-        # Create a zero vector for querying (returns all with filter)
+        # Create a zero vector for querying (returns all with filter).
+        # IMPORTANT: With a dummy vector, Pinecone returns an arbitrary subset up to top_k.
+        # We must fetch many more than limit, then sort by ingested_at and slice, or recent
+        # videos can be missing (e.g. user has 150 videos, we only got 100 random ones).
+        fetch_size = min(2000, 10000)  # Pinecone max top_k is 10000; get enough to sort by recency
         dummy_vector = [0.0] * 1536
 
-        # Query for user's own videos
+        # Query for user's own videos (fetch enough to include all, then sort by ingested_at)
         user_filter = {**filter_dict, "user_id": {"$eq": current_user_id}}
         print(f"User filter: {user_filter}")
         user_results = index.query(
             vector=dummy_vector,
-            top_k=limit,
+            top_k=fetch_size,
             include_metadata=True,
             filter=user_filter
         )
@@ -851,7 +855,7 @@ def get_library(
         shared_filter = {**filter_dict, "user_id": {"$eq": 0}}
         shared_results = index.query(
             vector=dummy_vector,
-            top_k=limit,
+            top_k=fetch_size,
             include_metadata=True,
             filter=shared_filter
         )
@@ -861,7 +865,7 @@ def get_library(
         all_filter = {**filter_dict}
         all_results = index.query(
             vector=dummy_vector,
-            top_k=limit * 2,
+            top_k=fetch_size,
             include_metadata=True,
             filter=all_filter
         )
