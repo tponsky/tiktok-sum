@@ -599,6 +599,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await response.json();
 
+            if (!response.ok) {
+                const msg = data.detail || response.statusText || 'Failed to load library';
+                libraryVideos.innerHTML = `<p class="error">${msg}. ${response.status === 401 ? 'Try logging in again.' : ''}</p>`;
+                return;
+            }
             displayLibrary(data);
         } catch (error) {
             console.error('Failed to load library:', error);
@@ -656,7 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <p class="library-author">@${video.author || 'Unknown'}</p>
                 <div class="library-meta">
-                    ${addedDate ? `<span title="Date Added">Added: ${addedDate}</span>` : (uploadDate ? `span title="Upload Date">Posted: ${uploadDate}</span>` : '')}
+                    ${addedDate ? `<span title="Date Added">Added: ${addedDate}</span>` : (uploadDate ? `<span title="Upload Date">Posted: ${uploadDate}</span>` : '')}
                     ${duration ? `<span>${duration}</span>` : ''}
                 </div>
                 ${categories.length > 1 ? `<div class="multi-category-badges">${categories.map(c => `<span class="small-badge">${c}</span>`).join('')}</div>` : ''}
