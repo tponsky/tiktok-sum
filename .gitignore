@@ -27,3 +27,9 @@ credentials*
 *credentials*
 secrets*
 deployment_notes.txt
+
+# local tooling and stray backups
+.claude/
+*.bak
+*.orig
+*.rej
