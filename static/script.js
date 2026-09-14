@@ -628,10 +628,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Helper to check if video is recent (within last 24 hours)
         function isRecent(video) {
-            if (!video.ingested_at) return false;
-            const now = Date.now() / 1000; // Convert to seconds
+            const at = Number(video.ingested_at);
+            if (!at) return false;
+            const now = Date.now() / 1000;
             const dayAgo = now - 86400;
-            return video.ingested_at > dayAgo;
+            return at > dayAgo;
         }
 
         // Helper to create a video card
@@ -640,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card.className = 'library-card';
 
             const uploadDate = video.upload_date ? formatDate(video.upload_date) : '';
-            const addedDate = video.ingested_at ? formatTimestamp(video.ingested_at) : '';
+            const addedDate = video.ingested_at ? formatTimestamp(Number(video.ingested_at)) : '';
             const duration = video.duration ? formatDuration(video.duration) : '';
             const keyTakeaway = video.key_takeaway || '';
             const transcript = video.transcript || '';
@@ -789,7 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Sort by date - flat list, most recent first
             categoryNav.innerHTML = '';
 
-            const sortedVideos = [...videos].sort((a, b) => (b.ingested_at || 0) - (a.ingested_at || 0));
+            const sortedVideos = [...videos].sort((a, b) => (Number(b.ingested_at) || 0) - (Number(a.ingested_at) || 0));
 
             const videoGrid = document.createElement('div');
             videoGrid.className = 'video-grid';
@@ -862,8 +863,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function formatTimestamp(unixSeconds) {
-        if (!unixSeconds) return '';
-        const date = new Date(unixSeconds * 1000);
+        const sec = Number(unixSeconds);
+        if (!sec) return '';
+        const date = new Date(sec * 1000);
         const month = (date.getMonth() + 1).toString().padStart(2, '0');
         const day = date.getDate().toString().padStart(2, '0');
         const year = date.getFullYear();

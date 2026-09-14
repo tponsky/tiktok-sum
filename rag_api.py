@@ -25,22 +25,18 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 APP_URL = os.getenv("APP_URL", "https://tiktoksum.staycurrentapp.com")
 
-# Pricing constants
-# -----------------------------------------------
-# Your actual API costs (approx):
-#   - Search: ~$0.0005 (embedding ~$0.00002 + GPT-4o-mini ~$0.0003-0.0005)
-#   - Ingest: ~$0.005-0.01 (transcript + summary + embeddings)
-#
-# With 5x markup (adjust MARKUP_MULTIPLIER to change):
-MARKUP_MULTIPLIER = 5.0
-BASE_COST_SEARCH = 0.001   # Your actual cost per search
-BASE_COST_INGEST = 0.006   # Your actual cost per video ingest (avg)
-
-COST_PER_SEARCH = BASE_COST_SEARCH * MARKUP_MULTIPLIER  # $0.005 per search
-COST_PER_INGEST = BASE_COST_INGEST * MARKUP_MULTIPLIER  # $0.03 per video ingest
-INITIAL_BALANCE = 2.00   # $2 trial for new users
-RELOAD_AMOUNT = 10.00    # $10 reload
-RELOAD_THRESHOLD = 1.00  # Suggest reload when < $1
+# Pricing constants now live in pricing.py so the charge path and the
+# refund path can never drift apart. Override via env vars if needed.
+from pricing import (
+    MARKUP_MULTIPLIER,
+    BASE_COST_SEARCH,
+    BASE_COST_INGEST,
+    COST_PER_SEARCH,
+    COST_PER_INGEST,
+    INITIAL_BALANCE,
+    RELOAD_AMOUNT,
+    RELOAD_THRESHOLD,
+)
 
 if not OPENAI_API_KEY:
     print("Warning: OPENAI_API_KEY not found in environment variables.")
@@ -262,11 +258,45 @@ Title:"""
     return title
 
 
+def openai_http_error(e: Exception, action: str = "process this request") -> HTTPException:
+    """Translate an OpenAI SDK exception into a clean, human HTTPException.
+
+    Raw SDK errors used to be echoed straight to the browser, which both
+    confused users and leaked internal billing details.
+    """
+    msg = str(e)
+    low = msg.lower()
+    if "insufficient_quota" in low or "credit_balance_exhausted" in low or "no credits remaining" in low:
+        return HTTPException(
+            status_code=503,
+            detail=("This app's AI service is temporarily out of credit, so it cannot "
+                    f"{action} right now. You have not been charged. "
+                    "The site owner has been notified."),
+        )
+    if "rate limit" in low or "429" in low:
+        return HTTPException(
+            status_code=429,
+            detail="The AI service is busy right now. Please try again in a moment. You have not been charged.",
+        )
+    if "invalid_api_key" in low or "incorrect api key" in low or "401" in low:
+        return HTTPException(
+            status_code=503,
+            detail=("This app's AI service is misconfigured, so it cannot "
+                    f"{action} right now. You have not been charged. "
+                    "The site owner has been notified."),
+        )
+    print(f"Unhandled OpenAI error during {action}: {msg}")
+    return HTTPException(
+        status_code=502,
+        detail=f"The AI service failed to {action}. Please try again. You have not been charged.",
+    )
+
+
 def embed_query(text: str) -> List[float]:
     """Generate embedding for the search query using text-embedding-3-small."""
     if not client:
-        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
-    
+        raise HTTPException(status_code=503, detail="This app's AI service is not configured. You have not been charged.")
+
     try:
         emb = client.embeddings.create(
             model="text-embedding-3-small",
@@ -274,7 +304,7 @@ def embed_query(text: str) -> List[float]:
         )
         return emb.data[0].embedding
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
+        raise openai_http_error(e, "run this search")
 
 
 def generate_rag_answer(query: str, contexts: List[dict], web_results: str = "") -> str:
@@ -363,8 +393,10 @@ Answer:"""
                         answer += f"\n[Source {num}]: [{info['title'][:50]}...]({info['url']}) by @{info['author']}"
 
             return answer
-        except:
-            return f"Error generating answer: {str(e)}"
+        except Exception:
+            # Both models failed. Raise rather than returning the error as the
+            # "answer", which used to leak raw SDK text AND still bill the user.
+            raise openai_http_error(e, "generate an answer")
 
 
 # ----------------- API Routes --------------------------
@@ -833,13 +865,14 @@ def get_library(
             filter_dict["author"] = {"$eq": author}
 
         # Create a zero vector for querying (returns all with filter).
-        # IMPORTANT: With a dummy vector, Pinecone returns an arbitrary subset up to top_k.
-        # We must fetch many more than limit, then sort by ingested_at and slice, or recent
-        # videos can be missing (e.g. user has 150 videos, we only got 100 random ones).
-        fetch_size = min(2000, 10000)  # Pinecone max top_k is 10000; get enough to sort by recency
+        # IMPORTANT: Pinecone returns matches in SIMILARITY order (to the query vector), not by date.
+        # So we must request enough to get ALL user videos (up to 10k), then sort by ingested_at.
+        # Otherwise recent videos can be missing (e.g. we get 2000 random-by-similarity, sort those,
+        # and the newest 50 might not be in that 2000).
+        fetch_size = 10000  # Pinecone max top_k; get all user videos so recency sort is correct
         dummy_vector = [0.0] * 1536
 
-        # Query for user's own videos (fetch enough to include all, then sort by ingested_at)
+        # Query for user's own videos (get all, then sort by ingested_at)
         user_filter = {**filter_dict, "user_id": {"$eq": current_user_id}}
         print(f"User filter: {user_filter}")
         user_results = index.query(
@@ -850,8 +883,7 @@ def get_library(
         )
         print(f"User-specific results: {len(user_results.matches)} videos found")
 
-        # Query for shared/public videos (user_id=0 or missing)
-        # Note: Pre-existing videos won't have user_id field, so we also get those
+        # Query for shared/public videos (user_id=0)
         shared_filter = {**filter_dict, "user_id": {"$eq": 0}}
         shared_results = index.query(
             vector=dummy_vector,
@@ -860,8 +892,7 @@ def get_library(
             filter=shared_filter
         )
 
-        # Also query for videos without user_id field (legacy content)
-        # Pinecone doesn't easily support "field doesn't exist", so we get all and filter
+        # Legacy: videos without user_id (query all with base filter, filter in code)
         all_filter = {**filter_dict}
         all_results = index.query(
             vector=dummy_vector,
@@ -874,11 +905,21 @@ def get_library(
         videos = []
         seen_sources = set()
 
+        def _num(val, default=0):
+            """Coerce to int for sorting; Pinecone may return numbers as strings."""
+            if val is None:
+                return default
+            try:
+                return int(float(val))
+            except (TypeError, ValueError):
+                return default
+
         def add_video(match):
             meta = match.metadata or {}
             source = meta.get("source", "")
             if source and source not in seen_sources:
                 seen_sources.add(source)
+                ingested_at = _num(meta.get("ingested_at"), 0)
                 videos.append({
                     "id": match.id,
                     "source": source,
@@ -887,14 +928,14 @@ def get_library(
                     "topic": meta.get("topic", ""),
                     "categories": meta.get("categories", meta.get("topic", "")),
                     "upload_date": meta.get("upload_date", ""),
-                    "duration": meta.get("duration", 0),
-                    "view_count": meta.get("view_count", 0),
-                    "ingested_at": meta.get("ingested_at", 0),
+                    "duration": _num(meta.get("duration"), 0),
+                    "view_count": _num(meta.get("view_count"), 0),
+                    "ingested_at": ingested_at,
                     "summary": meta.get("summary", ""),
                     "key_takeaway": meta.get("key_takeaway", ""),
                     "transcript": meta.get("transcript", ""),
-                    "user_id": meta.get("user_id", 0),
-                    "is_own": meta.get("user_id", 0) == current_user_id and current_user_id != 0,
+                    "user_id": _num(meta.get("user_id"), 0),
+                    "is_own": _num(meta.get("user_id"), 0) == current_user_id and current_user_id != 0,
                 })
 
         # Add user's own videos first
@@ -911,8 +952,8 @@ def get_library(
             if "user_id" not in meta:
                 add_video(match)
 
-        # Sort by ingested_at descending (most recent first)
-        videos.sort(key=lambda x: x.get("ingested_at", 0), reverse=True)
+        # Sort by ingested_at descending (most recent first); already int from add_video
+        videos.sort(key=lambda x: x["ingested_at"], reverse=True)
 
         return {"videos": videos[:limit], "count": len(videos[:limit])}
 

@@ -21,6 +21,7 @@ import pyperclip
 import yt_dlp
 from dotenv import load_dotenv
 import simple_auth
+from pricing import COST_PER_INGEST
 
 # --- Load ENV ---
 load_dotenv()
@@ -105,10 +106,22 @@ def download_audio(url: str, out_dir: str) -> tuple[str, dict]:
         fname = ydl.prepare_filename(info)
 
     base, _ = os.path.splitext(fname)
-    wav_path = base + ".wav"
+    # Suffix must differ from any extension yt-dlp may have produced. When the
+    # source download is already .mp3 (TikTok often is), a plain base + ".mp3"
+    # makes ffmpeg read and write the same path, which fails.
+    wav_path = base + ".sc16k.mp3"
 
-    cmd = ["ffmpeg", "-y", "-i", fname, "-ac", "1", "-ar", "16000", wav_path]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Encode to 16 kHz mono MP3 rather than WAV. Whisper caps uploads at 25 MB.
+    # WAV at 16 kHz mono is ~1.9 MB/min, so anything past ~13 min used to fail
+    # with a 413. At 32 kbps mono MP3 that same budget holds ~100 minutes.
+    cmd = ["ffmpeg", "-y", "-i", fname, "-ac", "1", "-ar", "16000",
+           "-b:a", "32k", wav_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not os.path.exists(wav_path):
+        # Previously stderr was discarded, which made audio failures look like
+        # generic "download failed" with no way to tell what actually broke.
+        tail = (proc.stderr or "").strip().splitlines()[-3:]
+        raise RuntimeError("Audio conversion failed: " + " | ".join(tail))
 
     # Extract metadata
     metadata = {
@@ -122,14 +135,56 @@ def download_audio(url: str, out_dir: str) -> tuple[str, dict]:
     return wav_path, metadata
 
 
-def transcribe_with_openai(audio_path: str) -> str:
-    """Transcribe audio with GPT-4o-mini-transcribe"""
+# Whisper rejects uploads over 25 MB. Stay under it with headroom.
+WHISPER_MAX_BYTES = 24 * 1024 * 1024
+
+
+def _split_audio(audio_path: str, out_dir: str, seconds: int = 900) -> List[str]:
+    """Split an audio file into fixed-length segments with ffmpeg."""
+    pattern = os.path.join(out_dir, "seg_%03d.mp3")
+    cmd = [
+        "ffmpeg", "-y", "-i", audio_path,
+        "-f", "segment", "-segment_time", str(seconds),
+        "-ac", "1", "-ar", "16000", "-b:a", "32k",
+        pattern,
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    segs = sorted(
+        os.path.join(out_dir, f) for f in os.listdir(out_dir)
+        if f.startswith("seg_") and f.endswith(".mp3")
+    )
+    return segs
+
+
+def _transcribe_one(audio_path: str) -> str:
     with open(audio_path, "rb") as f:
         resp = client.audio.transcriptions.create(
             model="whisper-1",
             file=f
         )
     return resp.text
+
+
+def transcribe_with_openai(audio_path: str) -> str:
+    """Transcribe audio, splitting first if it exceeds the Whisper upload limit.
+
+    Long videos used to fail outright with a 413. Now anything oversized is cut
+    into 15 minute segments and the transcripts are stitched back together.
+    """
+    size = os.path.getsize(audio_path)
+    if size <= WHISPER_MAX_BYTES:
+        return _transcribe_one(audio_path)
+
+    print(f"Audio is {size / 1024 / 1024:.1f} MB, splitting before transcription")
+    with tempfile.TemporaryDirectory() as segdir:
+        segments = _split_audio(audio_path, segdir)
+        if not segments:
+            raise RuntimeError("Audio splitting produced no segments")
+        parts = []
+        for i, seg in enumerate(segments, 1):
+            print(f"  transcribing segment {i}/{len(segments)}")
+            parts.append(_transcribe_one(seg))
+    return " ".join(p.strip() for p in parts if p and p.strip())
 
 
 def simple_sent_tokenize(text: str) -> List[str]:
@@ -339,6 +394,51 @@ def get_existing_categories(user_id: int = None) -> set:
 
 # -------- Main Pipeline -------- #
 
+def friendly_download_error(url: str, err: str) -> str:
+    """Turn a raw yt-dlp error into something a human can act on."""
+    low = err.lower()
+    if "login required" in low or "cookies" in low or "empty media response" in low:
+        if "instagram" in url.lower():
+            return ("Instagram now requires a logged-in session to download this reel, "
+                    "so it cannot be fetched from the server. Try the TikTok or YouTube "
+                    "version of this video, or save the video to your phone and upload "
+                    "the file instead.")
+        return ("This platform requires a logged-in session to download this video, "
+                "so it cannot be fetched from the server.")
+    if "ip address is blocked" in low or "blocked from accessing" in low:
+        return ("The platform blocked this server's IP address for this post. "
+                "This usually clears on its own. Try again later.")
+    if "private" in low or "not available" in low:
+        return "This video is private, deleted, or region locked, so it could not be downloaded."
+    if "unsupported url" in low:
+        return "That link is not a supported video URL."
+    return "The video could not be downloaded. It may be private, deleted, or unsupported."
+
+
+def refund_ingest(user_id: int, url: str, stage: str, err: str) -> None:
+    """Refund a failed ingest and record it so usage reporting stays accurate.
+
+    The refund is logged with a negative cost_usd. Without that, every usage
+    report and lifetime total silently overstates what the user actually spent.
+    """
+    if not user_id:
+        return
+    reason = friendly_download_error(url, err) if stage == "download" else (
+        f"Transcription failed: {err[:200]}")
+    try:
+        simple_auth.add_to_balance(user_id, COST_PER_INGEST)
+        simple_auth.log_usage(
+            user_id,
+            "ingest_error",
+            cost_usd=-COST_PER_INGEST,
+            details=f"{reason} | url={url[:120]} | refunded ${COST_PER_INGEST:.2f}",
+        )
+        print(f"Refunded ${COST_PER_INGEST:.2f} to user {user_id} ({stage} failure)")
+    except Exception as refund_err:
+        # Never let a refund failure hide the original error
+        print(f"REFUND FAILED for user {user_id}: {refund_err}")
+
+
 def process_urls(urls: List[str], topic: str = "", user_id: int = None):
     """Process TikTok URLs and ingest them into Pinecone.
 
@@ -361,10 +461,7 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
                 wav, video_metadata = download_audio(url, tmpdir)
             except Exception as e:
                 print("Download error:", e)
-                if user_id:
-                    # Refund the user if download fails
-                    simple_auth.add_to_balance(user_id, 0.03)
-                    simple_auth.log_usage(user_id, "ingest_error", details=f"Download failed for {url}: {str(e)} (Refunded $0.03)")
+                refund_ingest(user_id, url, "download", str(e))
                 continue
 
             # 2. Transcribe
@@ -372,8 +469,8 @@ def process_urls(urls: List[str], topic: str = "", user_id: int = None):
                 transcript = transcribe_with_openai(wav)
             except Exception as e:
                 print("Transcription error:", e)
-                if user_id:
-                    simple_auth.log_usage(user_id, "ingest_error", details=f"Transcription failed for {url}: {str(e)}")
+                # This path previously charged the user and never refunded.
+                refund_ingest(user_id, url, "transcription", str(e))
                 continue
 
             # 3. Chunk
