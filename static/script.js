@@ -254,9 +254,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Single Video Ingestion
+    // Instagram and Facebook only serve video to a logged-in session, so the
+    // server can never fetch them. Say so immediately instead of round-tripping.
+    const LOGIN_REQUIRED_HOSTS = ['instagram.com', 'instagr.am', 'facebook.com', 'fb.watch'];
+    const LOGIN_REQUIRED_MSG =
+        "Instagram links can't be added. Instagram only serves videos to a logged-in session, " +
+        "so the server can never download them. Nothing was charged. " +
+        "TikTok, YouTube, X and Reddit all work.";
+
+    function isLoginRequired(u) {
+        const low = (u || '').toLowerCase();
+        return LOGIN_REQUIRED_HOSTS.some(h => low.includes(h));
+    }
+
+    // Warn as soon as the link is pasted, before they even click Add.
+    ingestInput.addEventListener('input', () => {
+        if (isLoginRequired(ingestInput.value.trim())) {
+            ingestStatus.textContent = LOGIN_REQUIRED_MSG;
+            ingestStatus.className = 'status-msg error';
+            ingestStatus.classList.remove('hidden');
+        } else if (ingestStatus.textContent === LOGIN_REQUIRED_MSG) {
+            ingestStatus.classList.add('hidden');
+        }
+    });
+
     ingestBtn.addEventListener('click', async () => {
         const url = ingestInput.value.trim();
         if (!url) return;
+
+        if (isLoginRequired(url)) {
+            ingestStatus.textContent = LOGIN_REQUIRED_MSG;
+            ingestStatus.className = 'status-msg error';
+            ingestStatus.classList.remove('hidden');
+            return;
+        }
 
         const topic = ingestTopic.value.trim();
 

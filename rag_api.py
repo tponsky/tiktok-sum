@@ -38,6 +38,26 @@ from pricing import (
     RELOAD_THRESHOLD,
 )
 
+# Platforms that refuse server-side downloads because they require a logged-in
+# session. Rejecting these up front is kinder than charging, failing, refunding,
+# and leaving the user wondering where their video went.
+LOGIN_REQUIRED_HOSTS = ("instagram.com", "instagr.am", "facebook.com", "fb.watch")
+
+INSTAGRAM_MESSAGE = (
+    "Instagram links can't be added. Instagram only serves videos to a logged-in "
+    "session, and the server doesn't have one, so the video can never be downloaded. "
+    "Nothing was charged. TikTok, YouTube, X and Reddit all work - if this video "
+    "exists on one of those, send that link instead."
+)
+
+
+def reject_if_login_required(url: str) -> None:
+    """Raise a clear 400 for platforms we can never fetch. Call BEFORE billing."""
+    low = (url or "").lower()
+    if any(h in low for h in LOGIN_REQUIRED_HOSTS):
+        raise HTTPException(status_code=400, detail=INSTAGRAM_MESSAGE)
+
+
 if not OPENAI_API_KEY:
     print("Warning: OPENAI_API_KEY not found in environment variables.")
 if not PINECONE_API_KEY:
@@ -753,8 +773,11 @@ async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTa
         'vimeo.com', 'reddit.com', 'twitch.tv', 'instagram.com', 'instagr.am', 'facebook.com', 'fb.watch'
     ]
     is_supported = any(pattern in url_lower for pattern in supported_patterns)
-    # We do NOT error on unsupported platforms for now, to be permissive like before, 
+    # We do NOT error on unsupported platforms for now, to be permissive like before,
     # but we strip/clean the URL.
+
+    # Platforms that require a login are rejected before any money moves.
+    reject_if_login_required(url)
 
     # Check balance
     if balance < COST_PER_INGEST:
@@ -785,6 +808,8 @@ async def shortcut_ingest_video(request: Request, background_tasks: BackgroundTa
 @app.post("/ingest")
 async def ingest_video(req: IngestRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
     """Start background ingestion of a video (requires authentication)."""
+    reject_if_login_required(req.url)
+
     # Check balance
     user_id = user['user_id']
     balance = simple_auth.get_user_balance(user_id)
@@ -809,6 +834,15 @@ async def ingest_bulk(req: BulkIngestRequest, background_tasks: BackgroundTasks,
         raise HTTPException(status_code=400, detail="No URLs provided")
     if len(req.urls) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 URLs per batch")
+
+    blocked = [u for u in req.urls if any(h in (u or "").lower() for h in LOGIN_REQUIRED_HOSTS)]
+    if blocked:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{len(blocked)} of these links are from Instagram or Facebook. "
+                    + INSTAGRAM_MESSAGE.split(". ", 1)[1]
+                    + " Remove those links and send the rest."),
+        )
 
     # Check balance for all videos
     user_id = user['user_id']
@@ -1564,8 +1598,8 @@ def health():
     return {
         "status": "ok", 
         "message": "TikTok RAG API running!",
-        "version": "1.0.2",
-        "last_update": "2025-12-19T13:30Z"
+        "version": "1.1.0",
+        "last_update": "2026-09-14T20:40Z"
     }
 
 

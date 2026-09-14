@@ -2018,3 +2018,10 @@ textarea:focus {
         max-height: 90vh;
     }
 }
+/* Note under the Add Source form explaining unsupported platforms */
+.ingest-note {
+    margin: 8px 0 0;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    opacity: 0.75;
+}
