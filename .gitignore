@@ -17,3 +17,13 @@ venv/
 .vscode/
 *.log
 .DS_Store
+
+# --- secrets: never commit these ---
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*
+*credentials*
+secrets*
+deployment_notes.txt
